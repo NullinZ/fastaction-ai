@@ -164,6 +164,7 @@ flowchart TD
 - [Workbench](docs/WORKBENCH.md)
 - [Development Plan](docs/DEVELOPMENT_PLAN.md)
 - [Migration Boundary](docs/MIGRATION_BOUNDARY.md)
+- [Worklog](docs/WORKLOG.md)
 
 ## Example API Definition
 

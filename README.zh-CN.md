@@ -163,6 +163,7 @@ flowchart TD
 - [工作台设计](docs/WORKBENCH.md)
 - [开发计划](docs/DEVELOPMENT_PLAN.md)
 - [迁移边界](docs/MIGRATION_BOUNDARY.md)
+- [工作日志](docs/WORKLOG.md)
 
 ## API 注册示例
 
