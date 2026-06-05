@@ -153,3 +153,61 @@ Do not:
 - Do not let the model call arbitrary unregistered URLs.
 - Do not delete host-local FastAction code before host package integration passes.
 ```
+
+## 2026-06-06 Mentioned Entity Resolution / 显式提及实体校准
+
+```text
+Issue:
+  When a user mentions a target entity in text, such as "test workspace 0501",
+  the parameter resolver could still use current context first and select the
+  wrong current resource.
+
+Fix:
+  For parameters with resolve_entity, ParameterResolver now tries to match the
+  user text against host-provided candidate lists before falling back to
+  context.current_* sources.
+
+Candidate keys:
+  available_<entity>s
+  accessible_<entity>s
+  <entity>_candidates
+  available_entities.<entity>
+  entity_candidates.<entity>
+
+Matching:
+  exact compact text match
+  numeric zero-normalized match
+  lightweight fuzzy score with ambiguity guard
+```
+
+```text
+问题：
+  用户文本里明确提到目标实体时，例如“测试工作区 0501”，参数解析仍可能先使用
+  当前上下文里的 current resource，导致选错对象。
+
+修复：
+  对声明了 resolve_entity 的参数，ParameterResolver 会先用用户原文匹配
+  Host App 提供的候选实体列表，再回退到 context.current_*。
+
+候选来源：
+  available_<entity>s
+  accessible_<entity>s
+  <entity>_candidates
+  available_entities.<entity>
+  entity_candidates.<entity>
+
+匹配方式：
+  紧凑文本精确匹配
+  数字去前导零匹配
+  带歧义保护的轻量 fuzzy 匹配
+```
+
+Verification:
+
+```text
+PYTHONPATH=src /path/to/host/.venv/bin/python -m pytest tests/fastaction -q
+  Result: 34 passed.
+
+python3 scripts/validate_fastaction_boundaries.py
+  Result: passed.
+```

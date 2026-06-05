@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
+import re
 from typing import Any
 
 from fastaction.executor.field_mapper import read_path
@@ -47,10 +49,14 @@ class ParameterResolver:
         value = provided_params.get(parameter_name)
         if value is not None:
             return value
+        definition = api.parameters.get("properties", {}).get(parameter_name, {})
+        if isinstance(definition, dict):
+            value = self._from_entity_definition(definition, context, text)
+            if value is not None:
+                return value
         value = self._from_sources(api.parameter_sources(parameter_name), context, provided_params)
         if value is not None:
             return value
-        definition = api.parameters.get("properties", {}).get(parameter_name, {})
         if isinstance(definition, dict):
             value = self._from_text_aliases(definition, text)
             if value is not None:
@@ -95,6 +101,178 @@ class ParameterResolver:
                     return value
         return None
 
+    def _from_entity_definition(
+        self,
+        definition: dict[str, Any],
+        context: dict[str, Any],
+        text: str,
+    ) -> Any:
+        entity_type = definition.get("resolve_entity")
+        if not isinstance(entity_type, str) or not entity_type.strip() or not text:
+            return None
+        candidates = _entity_candidates(context, entity_type.strip())
+        if not candidates:
+            return None
+        matches: list[tuple[float, int, Any]] = []
+        for candidate in candidates:
+            entity_id = _entity_id(candidate, entity_type)
+            if entity_id is None:
+                continue
+            score, label_length = _entity_match_score(candidate, text)
+            if score >= 0.82:
+                matches.append((score, label_length, entity_id))
+        if not matches:
+            return None
+        matches.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        if len(matches) > 1 and matches[0][0] < 0.98 and matches[0][0] - matches[1][0] < 0.04:
+            return None
+        return matches[0][2]
+
 
 def _compact_text(value: str) -> str:
     return "".join(char for char in value if not char.isspace())
+
+
+def _entity_candidates(context: dict[str, Any], entity_type: str) -> list[Any]:
+    plural = _pluralize(entity_type)
+    keys = [
+        entity_type,
+        plural,
+        f"{entity_type}_list",
+        f"{plural}_list",
+        f"available_{entity_type}",
+        f"available_{plural}",
+        f"accessible_{entity_type}",
+        f"accessible_{plural}",
+        f"{entity_type}_candidates",
+        f"{plural}_candidates",
+        f"available_{entity_type}_candidates",
+        f"available_{plural}_candidates",
+    ]
+    result: list[Any] = []
+    for key in keys:
+        result.extend(_coerce_candidates(context.get(key)))
+    for container_key in ("entities", "entity_candidates", "available_entities", "accessible_entities"):
+        container = context.get(container_key)
+        if isinstance(container, dict):
+            for key in (entity_type, plural):
+                result.extend(_coerce_candidates(container.get(key)))
+    return _dedupe_candidates(result, entity_type)
+
+
+def _coerce_candidates(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        for key in ("items", "data", "list", "records", "results"):
+            nested = value.get(key)
+            if isinstance(nested, list):
+                return nested
+        if "id" in value or "name" in value or "label" in value:
+            return [value]
+    return []
+
+
+def _dedupe_candidates(candidates: list[Any], entity_type: str) -> list[Any]:
+    seen: set[str] = set()
+    result: list[Any] = []
+    for candidate in candidates:
+        entity_id = _entity_id(candidate, entity_type)
+        marker = str(entity_id if entity_id is not None else candidate)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append(candidate)
+    return result
+
+
+def _entity_id(candidate: Any, entity_type: str) -> Any:
+    if isinstance(candidate, str):
+        return candidate
+    if not isinstance(candidate, dict):
+        return None
+    for key in ("id", f"{entity_type}_id", "uuid", "value", "key"):
+        value = candidate.get(key)
+        if value is not None and str(value).strip():
+            return value
+    return None
+
+
+def _entity_match_score(candidate: Any, text: str) -> tuple[float, int]:
+    labels = _entity_labels(candidate)
+    if not labels:
+        return 0.0, 0
+    best_score = 0.0
+    best_length = 0
+    for label in labels:
+        compact_label = _normalize_match_text(label)
+        compact_text = _normalize_match_text(text)
+        if not compact_label:
+            continue
+        if compact_label in compact_text:
+            score = 1.0
+        elif _normalize_numeric_zeros(compact_label) in _normalize_numeric_zeros(compact_text):
+            score = 0.96
+        else:
+            score = SequenceMatcher(None, compact_label, compact_text).ratio()
+        if score > best_score:
+            best_score = score
+            best_length = len(compact_label)
+    return best_score, best_length
+
+
+def _entity_labels(candidate: Any) -> list[str]:
+    if isinstance(candidate, str):
+        return [candidate]
+    if not isinstance(candidate, dict):
+        return []
+    labels: list[str] = []
+    for key in (
+        "name",
+        "label",
+        "title",
+        "display_name",
+        "alias",
+        "code",
+        "number",
+        "short_name",
+        "description",
+    ):
+        value = candidate.get(key)
+        if isinstance(value, str) and value.strip():
+            labels.append(value)
+        elif isinstance(value, list):
+            labels.extend(item for item in value if isinstance(item, str) and item.strip())
+    for key in ("aliases", "keywords"):
+        value = candidate.get(key)
+        if isinstance(value, list):
+            labels.extend(item for item in value if isinstance(item, str) and item.strip())
+    return _dedupe_strings(labels)
+
+
+def _normalize_match_text(value: str) -> str:
+    return re.sub(r"[\s\-_·,，.。:：/\\()（）【】\\[\\]{}]+", "", value).lower()
+
+
+def _normalize_numeric_zeros(value: str) -> str:
+    return re.sub(r"\d+", lambda match: str(int(match.group(0))), value)
+
+
+def _pluralize(value: str) -> str:
+    if value.endswith("y"):
+        return f"{value[:-1]}ies"
+    if value.endswith("s"):
+        return value
+    return f"{value}s"
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        marker = _normalize_match_text(value)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append(value)
+    return result

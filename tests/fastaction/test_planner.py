@@ -50,6 +50,27 @@ def test_planner_invokes_api_when_context_resolves_required_param():
     assert instruction.params == {"resourceId": "res_001"}
 
 
+def test_planner_prefers_mentioned_entity_over_current_context():
+    api = make_api()
+    api.parameters["properties"]["resourceId"]["resolve_entity"] = "resource"
+    instruction = DeterministicPlanner().plan(
+        ChatRequest(
+            text="查询测试项目 0501 的状态",
+            context={
+                "current_resource": {"id": "res_wrong", "name": "当前默认项目"},
+                "available_resources": [
+                    {"id": "res_0501", "name": "测试项目 0501"},
+                    {"id": "res_0510", "name": "测试项目 0510"},
+                ],
+            },
+        ),
+        [api],
+    )
+
+    assert instruction.action == "invoke_api"
+    assert instruction.params["resourceId"] == "res_0501"
+
+
 def test_planner_clarifies_when_required_param_missing():
     instruction = DeterministicPlanner().plan(ChatRequest(text="查一下当前状态"), [make_api()])
 

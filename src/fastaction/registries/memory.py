@@ -71,6 +71,7 @@ def default_api_definitions() -> list[APIDefinition]:
                         "type": "string",
                         "default": "all",
                         "source": ["context.current_workspace.id", "context.workspace_id"],
+                        "resolve_entity": "workspace",
                         "description": "Workspace ID. Use all to query all accessible workspaces.",
                     },
                     "limit": {
