@@ -4,7 +4,7 @@
 
 **AI-powered API Orchestration Framework**
 
-FastAction 是一个开源的自然语言 API 编排框架，用于把用户的自然语言请求转成安全、可确认、可审计的业务 API 动作。
+FastAction 是一个开源框架，用于把企业既有系统 API 接入 AI 智能体。它提供 API 注册、权限协同、上下文、字典、调用准备、确认、执行编排和审计能力，把自然语言请求转成安全、可确认、可审计的业务 API 动作。
 
 ```text
 品牌名：    FastAction
@@ -21,34 +21,38 @@ Import：    fastaction
 
 FastAction 是一个 **自然语言 API 编排引擎**。它不是普通聊天机器人，也不是单纯的 RAG 知识库。
 
+它面向已经有内部系统、用户权限、业务字典、工作流和大量既有 API 的企业或产品团队。FastAction 的作用是把这些既有能力安全地暴露给 AI 智能体，而不是让模型自由访问企业内部系统。
+
 它解决的问题是：
 
 ```text
-用户用自然语言表达需求
+用户向 AI 智能体表达业务需求
   ↓
 系统理解意图
   ↓
-从已注册能力中找到合适的 API
+从已注册的企业 API 能力中找到合适的 API
   ↓
-解析参数、校准实体、识别枚举、处理附件
+解析参数、校准实体、识别字典和枚举、处理附件
   ↓
-判断权限、风险和是否需要确认
+判断宿主系统权限、风险和是否需要确认
   ↓
 由宿主系统使用真实用户身份执行业务 API
   ↓
-返回结构化结果、卡片协议和审计记录
+返回编排后的结果、卡片协议和审计记录
 ```
 
 换句话说，FastAction 关注的是：
 
 ```text
-Natural Language -> Safe Business Action
-自然语言 -> 安全业务动作
+Existing Enterprise APIs -> AI Agents -> Safe Business Workflows
+企业既有 API -> AI 智能体 -> 安全业务流程
 ```
 
 ## 它解决什么问题？
 
-大多数业务系统都有大量 API：
+传统企业和 SaaS 产品通常已经有成熟的内部系统：CRM、ERP、项目管理、工单、审批、资产管理、内部管理后台，以及大量私有 API。真正的问题不只是“让大模型调用一个 API”，而是如何把大量既有 API 安全地接入 AI 智能体，同时保留企业级的权限、字典、上下文、执行规则和审计能力。
+
+业务 API 通常包括：
 
 - 列表查询
 - 详情查询
@@ -75,7 +79,7 @@ Natural Language -> Safe Business Action
 统计一下本月新增线索数量。
 ```
 
-FastAction 的目标是让业务系统可以把自己的 API 注册为“可被自然语言调用的能力”，同时保留真实业务系统必须具备的安全控制：
+FastAction 的目标是让业务系统可以把既有 API 注册为“可被自然语言调用的能力”，同时保留真实业务系统必须具备的安全控制：
 
 - 用户身份
 - 租户边界
@@ -145,8 +149,8 @@ flowchart TD
 | Provider Registry | 注册 LLM、Embedding、ASR、Rerank 等 AI Provider |
 | Context Registry | 注册用户、租户、当前页面、当前资源、业务实体列表等上下文来源 |
 | Entity Resolver | 把自然语言中的业务对象校准成真实 ID |
-| Preparation Layer | 处理参数准备、枚举识别、查询构造、附件计划和执行前检查 |
-| Policy Engine | 判断角色权限、租户边界、风险等级和确认策略 |
+| Preparation Layer | 处理参数准备、字典识别、枚举识别、查询构造、附件计划和执行前检查 |
+| Policy Engine | 协同宿主系统权限、租户边界、风险等级和确认策略 |
 | Planner | 基于候选能力、上下文和策略生成结构化执行计划 |
 | Instruction Protocol | 定义 `answer`、`clarify`、`confirm`、`invoke_api`、`reject` 等动作 |
 | Host Executor | 在宿主系统内使用真实用户身份执行业务 API |
@@ -248,9 +252,11 @@ FastAction 的核心原则：
 
 FastAction 适合：
 
+- 企业既有系统接入 AI 智能体
 - SaaS 后台自然语言操作
 - CRM / ERP / 项目管理系统
 - 内部运营管理平台
+- 内部工作流自动化
 - 客服或顾问工作台
 - 多租户业务系统
 - 需要权限、确认和审计的 AI 操作入口

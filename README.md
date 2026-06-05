@@ -4,7 +4,7 @@
 
 **AI-powered API Orchestration Framework**
 
-FastAction is an open-source framework for turning natural language into safe, confirmable, auditable API actions.
+FastAction is an open-source framework for connecting existing enterprise system APIs to AI agents. It provides the registry, policy, context, dictionary, preparation, confirmation, execution, and audit layers required to turn natural language into safe, confirmable, auditable business API actions.
 
 ```text
 Brand:      FastAction
@@ -21,33 +21,37 @@ License:    Apache-2.0
 
 FastAction is a **Natural Language API Orchestration Framework**. It is not a generic chatbot and not just a RAG layer.
 
+It is designed for enterprises and product teams that already have internal systems, user permissions, business dictionaries, workflows, and a large number of existing APIs. FastAction helps expose those existing capabilities to AI agents without giving the model unrestricted access to internal systems.
+
 It is designed to turn user requests into safe business actions:
 
 ```text
-User says what they want
+User asks an AI agent for a business action
   ↓
 FastAction understands the intent
   ↓
-FastAction retrieves matching registered capabilities
+FastAction retrieves matching registered enterprise API capabilities
   ↓
-FastAction prepares parameters, resolves entities, maps options, and handles attachments
+FastAction prepares parameters, resolves entities, maps dictionaries, and handles attachments
   ↓
-FastAction checks permissions, risk, and confirmation policy
+FastAction checks host authorization, risk, and confirmation policy
   ↓
-The host application executes the real business API with the real user identity
+The host application executes the real API with the real user identity
   ↓
-FastAction returns structured results, card protocol data, and audit traces
+FastAction returns an orchestrated result, card protocol data, and audit traces
 ```
 
 In short:
 
 ```text
-Natural Language -> Safe Business Action
+Existing Enterprise APIs -> AI Agents -> Safe Business Workflows
 ```
 
 ## What Problem Does It Solve?
 
-Business systems usually have many APIs:
+Traditional enterprises and SaaS products already have working systems: CRM, ERP, project management, ticketing, approval, asset management, internal admin platforms, and many private APIs. The challenge is not only how to call one API from an LLM. The harder problem is how to safely expose many existing APIs to AI agents while preserving enterprise-grade authorization, dictionaries, context, execution rules, and auditability.
+
+Business APIs usually cover:
 
 - list
 - detail
@@ -76,13 +80,13 @@ Mark this task as completed.
 Count new leads created this month.
 ```
 
-FastAction lets host applications register their APIs as natural-language-invokable capabilities while preserving the controls required by real production systems:
+FastAction lets host applications register their existing APIs as natural-language-invokable capabilities while preserving the controls required by real production systems:
 
 - identity
 - tenant boundary
 - role-based permission
 - parameter validation
-- option and enum resolution
+- dictionary, option, and enum resolution
 - context entity resolution
 - attachment planning
 - write-operation confirmation
@@ -146,8 +150,8 @@ flowchart TD
 | Provider Registry | Register LLM, embedding, ASR, and rerank providers |
 | Context Registry | Register user, tenant, page, current resource, and business entity context sources |
 | Entity Resolver | Resolve mentioned business entities into real IDs |
-| Preparation Layer | Prepare parameters, options, queries, attachments, and preflight checks |
-| Policy Engine | Check permissions, tenant boundaries, risk, and confirmation policy |
+| Preparation Layer | Prepare parameters, dictionaries, options, queries, attachments, and preflight checks |
+| Policy Engine | Coordinate with host authorization, tenant boundaries, risk, and confirmation policy |
 | Planner | Generate structured plans from candidates, context, and policy |
 | Instruction Protocol | Define actions such as `answer`, `clarify`, `confirm`, `invoke_api`, and `reject` |
 | Host Executor | Execute real business APIs inside the host application with real user identity |
@@ -249,9 +253,11 @@ FastAction is designed around these principles:
 
 FastAction is useful for:
 
+- AI agent access layers for existing enterprise systems
 - natural-language SaaS operations
 - CRM, ERP, and project management systems
 - internal admin platforms
+- internal workflow automation
 - support or advisor workbenches
 - multi-tenant business systems
 - AI operation entry points that require permission, confirmation, and audit
