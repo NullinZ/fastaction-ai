@@ -163,6 +163,7 @@ flowchart TD
 - [工作台设计](docs/WORKBENCH.md)
 - [开发计划](docs/DEVELOPMENT_PLAN.md)
 - [迁移边界](docs/MIGRATION_BOUNDARY.md)
+- [发布流程](docs/RELEASE_PROCESS.md)
 - [工作日志](docs/WORKLOG.md)
 
 ## API 注册示例
@@ -304,6 +305,13 @@ Phase 3:
   - Card examples
   - Production observability
 ```
+
+## 贡献与安全
+
+- 提交 PR 前请先阅读 [贡献指南](CONTRIBUTING.md)。
+- 报告安全漏洞前请先阅读 [安全策略](SECURITY.md)。
+- 项目讨论请遵守 [行为准则](CODE_OF_CONDUCT.md)。
+- 版本变化和迁移说明见 [更新日志](CHANGELOG.md)。
 
 ## License
 

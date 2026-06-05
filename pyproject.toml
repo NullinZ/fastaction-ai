@@ -8,8 +8,12 @@ version = "0.1.0"
 description = "AI-powered API orchestration framework for connecting existing enterprise APIs to AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [
+    {name = "FastAction Contributors"},
+]
+maintainers = [
     {name = "FastAction Contributors"},
 ]
 keywords = [
@@ -27,6 +31,28 @@ dependencies = [
     "pydantic>=2.0.0",
     "sqlalchemy>=2.0.0",
 ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Office/Business",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/NullinZ/fastaction-ai"
+Repository = "https://github.com/NullinZ/fastaction-ai"
+Issues = "https://github.com/NullinZ/fastaction-ai/issues"
+Documentation = "https://github.com/NullinZ/fastaction-ai/tree/main/docs"
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40.0"]
@@ -49,4 +75,3 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-

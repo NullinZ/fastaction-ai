@@ -164,6 +164,7 @@ flowchart TD
 - [Workbench](docs/WORKBENCH.md)
 - [Development Plan](docs/DEVELOPMENT_PLAN.md)
 - [Migration Boundary](docs/MIGRATION_BOUNDARY.md)
+- [Release Process](docs/RELEASE_PROCESS.md)
 - [Worklog](docs/WORKLOG.md)
 
 ## Example API Definition
@@ -305,6 +306,13 @@ Phase 3:
   - Card examples
   - Production observability
 ```
+
+## Contributing And Security
+
+- Read [Contributing](CONTRIBUTING.md) before opening a pull request.
+- Read [Security Policy](SECURITY.md) before reporting a vulnerability.
+- Follow the [Code of Conduct](CODE_OF_CONDUCT.md) in project discussions.
+- See [Changelog](CHANGELOG.md) for release notes and migration notes.
 
 ## License
 

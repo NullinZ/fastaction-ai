@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a reproducible FastAction defect.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please do not include secrets, API keys, access tokens, customer data, or private endpoint details.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Provide a minimal sequence that reproduces the issue.
+      placeholder: |
+        1. Register API definition ...
+        2. Send request ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: FastAction version or commit
+      placeholder: "0.1.0 / commit SHA"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Runtime mode
+      options:
+        - Package mode
+        - Server mode
+        - Workbench
+        - Tests only
+        - Other
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Python version, OS, database, browser if relevant"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or traces
+      description: Redact tokens, secrets, private URLs, and customer data.
+      render: text

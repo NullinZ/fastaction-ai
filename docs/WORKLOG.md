@@ -7,7 +7,7 @@ This file is append-only. It exists so work can resume after an interrupted term
 ## Resume Protocol / 续接协议
 
 ```bash
-cd /Users/nullin/GitHub/fastaction-ai
+cd fastaction-ai
 git status --short --untracked-files=all
 git log --oneline -5
 python3 scripts/validate_fastaction_boundaries.py
@@ -18,14 +18,14 @@ cd frontend/workbench && npm run build
 If the Python virtualenv from a host project is needed:
 
 ```bash
-cd /Users/nullin/GitHub/fastaction-ai
+cd fastaction-ai
 PYTHONPATH=src /path/to/host/.venv/bin/python -m pytest tests/fastaction -q
 ```
 
 Before committing:
 
 ```bash
-cd /Users/nullin/GitHub/fastaction-ai
+cd fastaction-ai
 python3 scripts/validate_fastaction_boundaries.py
 git diff --check
 ```

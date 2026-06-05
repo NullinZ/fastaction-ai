@@ -15,10 +15,7 @@ from fastaction.planner import DeterministicPlanner, LLMPlanner
 from fastaction.persistence import (
     clear_test_messages,
     delete_api_definition as persist_delete_api_definition,
-    delete_card_binding as persist_delete_card_binding,
-    delete_card_definition as persist_delete_card_definition,
     delete_identity_definition as persist_delete_identity_definition,
-    delete_knowledge_definition as persist_delete_knowledge_definition,
     delete_provider_config as persist_delete_provider_config,
     is_initialized as fastaction_persistence_initialized,
     list_execution_results,
@@ -59,7 +56,7 @@ from fastaction.schemas import (
     RenderResult,
     RunRecord,
 )
-from fastaction.schemas.instruction import CandidateSummary, ClarifyPayload
+from fastaction.schemas.instruction import CandidateSummary
 
 router = APIRouter(prefix="/fastaction", tags=["FastAction"])
 planner = DeterministicPlanner()
