@@ -75,7 +75,7 @@ They say:
 ```text
 Show me my pending tasks.
 List this customer's recent orders.
-Upload this drawing to the test project.
+Attach this contract PDF to Acme customer.
 Mark this task as completed.
 Count new leads created this month.
 ```
@@ -108,7 +108,7 @@ Real business API orchestration needs additional governance:
 
 ```text
 Is this user allowed to call this API?
-Which real ID does "test project" refer to?
+Which real ID does "Acme customer" refer to?
 Is this field a business enum?
 Should this attachment be uploaded first or submitted inline?
 Is this a write operation that requires confirmation?
@@ -158,6 +158,13 @@ flowchart TD
 | Card Registry | Map API results to list, detail, metric, result, and custom cards |
 | Runs & Audit | Record retrieval, planning, confirmation, execution, and errors |
 
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Workbench](docs/WORKBENCH.md)
+- [Development Plan](docs/DEVELOPMENT_PLAN.md)
+- [Migration Boundary](docs/MIGRATION_BOUNDARY.md)
+
 ## Example API Definition
 
 ```yaml
@@ -185,7 +192,7 @@ card:
   type: list_card
   bindings:
     title: $.title
-    subtitle: $.project_name
+    subtitle: $.customer_name
     status: $.status
 ```
 

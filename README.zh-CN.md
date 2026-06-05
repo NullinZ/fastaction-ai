@@ -74,7 +74,7 @@ Existing Enterprise APIs -> AI Agents -> Safe Business Workflows
 ```text
 帮我看一下今天有哪些待办。
 把这个客户最近的订单列出来。
-上传这张图纸到测试项目。
+把这份合同附件上传到 Acme 客户记录里。
 把这个任务标记为已完成。
 统计一下本月新增线索数量。
 ```
@@ -107,7 +107,7 @@ FastAction 的目标是让业务系统可以把既有 API 注册为“可被自�
 
 ```text
 这个用户能不能调用这个 API？
-这句话里的“测试项目”到底对应哪个真实 ID？
+这句话里的“Acme 客户”到底对应哪个真实 ID？
 这个字段是不是业务枚举？
 附件是先上传还是随请求提交？
 这是写操作，要不要用户确认？
@@ -157,6 +157,13 @@ flowchart TD
 | Card Registry | 定义 API 结果如何映射到列表卡、详情卡、统计卡、结果卡等展示协议 |
 | Runs & Audit | 记录召回、规划、确认、执行和错误链路 |
 
+## 文档
+
+- [架构设计](docs/ARCHITECTURE.md)
+- [工作台设计](docs/WORKBENCH.md)
+- [开发计划](docs/DEVELOPMENT_PLAN.md)
+- [迁移边界](docs/MIGRATION_BOUNDARY.md)
+
 ## API 注册示例
 
 ```yaml
@@ -184,7 +191,7 @@ card:
   type: list_card
   bindings:
     title: $.title
-    subtitle: $.project_name
+    subtitle: $.customer_name
     status: $.status
 ```
 
