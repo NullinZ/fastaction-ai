@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from fastaction.interfaces.api import router
+from fastaction.interfaces.api import (
+    router,
+    set_context_policy_hook,
+    set_context_unavailable_instruction_hook,
+)
 
 
 def make_client() -> TestClient:
@@ -130,6 +134,55 @@ def test_fastaction_identity_denied_api_explains_allowed_callers():
     assert "示例管理员" in payload["reply"]["zh"]
 
     client.delete("/fastaction/identity-definitions/test-denied-tasks-reader")
+
+
+def test_fastaction_host_context_policy_hook_can_block_api():
+    client = make_client()
+    payload = {
+        "id": "context.secure_test",
+        "name": {"zh": "上下文策略测试", "en": "Context policy test"},
+        "operation_type": "action",
+        "intent": {
+            "description": {"zh": "上下文策略测试", "en": "Context policy test"},
+            "keywords": {"zh": ["上下文策略测试"], "en": ["context policy test"]},
+            "examples": [],
+        },
+        "request": {
+            "method": "POST",
+            "endpoint": "/api/v1/context-policy-test",
+            "auth_mode": "user_token",
+            "auth": {"mode": "user_token", "token_context_path": "auth.access_token"},
+        },
+        "parameters": {"type": "object", "properties": {}},
+        "policy": {"risk": "read", "requires_confirmation": False, "permissions": []},
+        "render": {"card_type": "result_card", "fallback_card_type": "generic_data_card"},
+    }
+    assert client.post("/fastaction/api-definitions", json=payload).status_code == 200
+
+    def context_policy(api, identity, context):
+        if api.id == "context.secure_test" and context.get("blocked"):
+            return False
+        return None
+
+    try:
+        set_context_policy_hook(context_policy)
+        response = client.post(
+            "/fastaction/chat",
+            json={
+                "text": "上下文策略测试",
+                "identity_id": "example-admin",
+                "context": {"blocked": True},
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["action"] == "reject"
+        assert "当前业务上下文不允许" in data["reply"]["zh"]
+    finally:
+        set_context_policy_hook(None)
+        set_context_unavailable_instruction_hook(None)
+        client.delete("/fastaction/api-definitions/context.secure_test")
 
 
 def test_fastaction_provider_preview_masks_secret():

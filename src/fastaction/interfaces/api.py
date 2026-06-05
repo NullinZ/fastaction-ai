@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import time
 from typing import Any
 
@@ -63,6 +64,33 @@ from fastaction.schemas.instruction import CandidateSummary, ClarifyPayload
 router = APIRouter(prefix="/fastaction", tags=["FastAction"])
 planner = DeterministicPlanner()
 llm_planner = LLMPlanner(deterministic_planner=planner)
+ContextPolicyHook = Callable[[APIDefinition, IdentityDefinition | None, dict[str, Any]], bool | None]
+ContextUnavailableInstructionHook = Callable[
+    [APIDefinition, IdentityDefinition | None, ChatRequest, CandidateSummary, dict[str, Any]],
+    Instruction | None,
+]
+_context_policy_hook: ContextPolicyHook | None = None
+_context_unavailable_instruction_hook: ContextUnavailableInstructionHook | None = None
+
+
+def set_context_policy_hook(hook: ContextPolicyHook | None) -> None:
+    """Register a host-owned context policy hook.
+
+    The hook may return True/False to decide availability, or None to let
+    FastAction's default policy continue.
+    """
+
+    global _context_policy_hook
+    _context_policy_hook = hook
+
+
+def set_context_unavailable_instruction_hook(
+    hook: ContextUnavailableInstructionHook | None,
+) -> None:
+    """Register a host-owned response hook for context policy denials."""
+
+    global _context_unavailable_instruction_hook
+    _context_unavailable_instruction_hook = hook
 
 
 class CardPreviewRequest(BaseModel):
@@ -534,7 +562,10 @@ def _is_api_allowed_by_context(
     identity: IdentityDefinition | None,
     context: dict[str, Any],
 ) -> bool:
-    del api, identity, context
+    if _context_policy_hook:
+        result = _context_policy_hook(api, identity, context)
+        if result is not None:
+            return bool(result)
     return True
 
 
@@ -560,6 +591,16 @@ def _contextual_unavailable_instruction(
         reason=best_blocked.reason,
     )
     reason = _api_unavailable_reason(best_blocked.api, identity, request.context)
+    if reason.get("type") == "context" and _context_unavailable_instruction_hook:
+        instruction = _context_unavailable_instruction_hook(
+            best_blocked.api,
+            identity,
+            request,
+            summary,
+            reason,
+        )
+        if instruction is not None:
+            return instruction
     return _role_unavailable_instruction(best_blocked.api, identity, request, summary, reason)
 
 
