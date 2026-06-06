@@ -221,7 +221,7 @@ def _build_answer_system_prompt(identity_prompt: str) -> str:
         "No registered API matched the user's request, so you must not claim that business data "
         "was queried, updated, created, or deleted. Give a concise helpful answer, ask a clarifying "
         "question when needed, and guide the user toward a registered capability when appropriate. "
-        "Do not invent API results, project facts, account data, or hidden system state."
+        "Do not invent API results, resource facts, account data, or hidden system state."
     )
     return f"{identity_prompt}\n\n{base}" if identity_prompt else base
 

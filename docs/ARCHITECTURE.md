@@ -413,6 +413,44 @@ Cards are examples and UI contracts, not business logic. Host applications can r
 
 卡片是展示协议和样例，不是业务逻辑。宿主系统可以注册自己的卡片，并把 API 返回字段绑定到卡片 props。
 
+Card definitions are split into three tiers:
+
+```text
+Protocol cards:
+  FastAction core contracts such as list_card, detail_card, metric_card,
+  result_card, confirm_card, picker_card, missing_params_card,
+  and generic_data_card.
+
+Business examples:
+  Enterprise patterns such as todo_card, progress_card, risk_alert_card,
+  and attachment result cards. They are examples, not core.
+
+Host UI samples:
+  Product-specific UI such as chat bubbles, homepage modules, quick chips,
+  and notification rows. They belong to host adapters.
+```
+
+卡片定义分三层：
+
+```text
+协议核心卡片：
+  FastAction 核心协议，例如 list_card、detail_card、metric_card、
+  result_card、confirm_card、picker_card、missing_params_card、
+  generic_data_card。
+
+企业业务样例：
+  todo_card、progress_card、risk_alert_card、附件结果卡等企业常见模式。
+  它们是样例，不是核心。
+
+宿主 UI 样例：
+  聊天气泡、首页模块、快捷问题、通知行等产品专属 UI。
+  它们属于 Host Adapter。
+```
+
+The Card Gallery exposes these tiers visually and provides copyable `CardDefinition`, `render.field_bindings`, and sample response JSON.
+
+Card Gallery 会可视化展示这些分层，并提供可复制的 `CardDefinition`、`render.field_bindings` 和示例响应 JSON。
+
 ## 13. Persistence / 持久化
 
 FastAction can run with an in-memory registry for development. In production, it should use its own schema or database namespace.
@@ -423,10 +461,11 @@ FastAction 开发阶段可以使用内存注册表。生产建议使用独立 sc
 Recommended tables:
   fastaction.api_definitions
   fastaction.card_definitions
+  fastaction.card_bindings
   fastaction.provider_configs
   fastaction.identity_definitions
-  fastaction.context_definitions
-  fastaction.option_definitions
+  fastaction.knowledge_definitions
+  fastaction.option_sets
   fastaction.run_records
   fastaction.execution_results
   fastaction.test_messages

@@ -26,6 +26,7 @@ Workbench:
   - provider settings
   - identity settings
   - context input and debug trace
+  - generic demo data only
 
 Tests:
   - contract tests
@@ -57,6 +58,7 @@ Tests:
   - Provider 设置
   - 身份设置
   - 上下文输入和调试 Trace
+  - 仅包含通用演示数据
 
 测试：
   - 协议测试
@@ -86,6 +88,7 @@ Host-specific code:
   - adapter that resolves current user/session/context
   - adapter that executes real APIs
   - adapter that uploads files
+  - host-specific integration demo pages
   - UI shell integration and menu placement
 ```
 
@@ -105,10 +108,27 @@ Host-specific code:
   - 解析当前用户、会话和上下文的 adapter
   - 执行真实 API 的 adapter
   - 上传文件的 adapter
+  - 宿主业务专用集成演示页
   - 宿主管理后台菜单和 UI 外壳集成
 ```
 
-## 3. Deletion Rule / 删除旧实现规则
+## 3. Workbench Rule / 工作台规则
+
+```text
+FastAction Workbench can be shipped as a generic demo and embedded by a host app.
+It must not contain host-specific business routes, dictionaries, roles, entity
+names, or real execution code. The generic test bench records simulated
+ExecutionResult rows unless the host app explicitly wires its own executor.
+```
+
+```text
+FastAction Workbench 可以作为通用演示随开源工程发布，也可以被宿主系统嵌入。
+它不能包含宿主业务路由、业务字典、业务角色、业务实体名称或真实执行业务代码。
+通用测试台默认只记录模拟 ExecutionResult；只有宿主系统显式接入自己的 executor
+时，才执行真实业务 API。
+```
+
+## 4. Deletion Rule / 删除旧实现规则
 
 ```text
 The old host implementation can be removed only after the host app imports this package

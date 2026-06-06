@@ -164,6 +164,8 @@ flowchart TD
 - [快速指引](docs/QUICKSTART.zh-CN.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workbench](docs/WORKBENCH.md)
+- [Card Gallery](docs/CARD_GALLERY.md)
+- [卡片库](docs/CARD_GALLERY.zh-CN.md)
 - [Development Plan](docs/DEVELOPMENT_PLAN.md)
 - [Migration Boundary](docs/MIGRATION_BOUNDARY.md)
 - [Release Process](docs/RELEASE_PROCESS.md)

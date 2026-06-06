@@ -205,6 +205,21 @@ npm run dev
 
 工作台用于查看 API 定义、Provider、身份、卡片绑定、Planner Trace 和执行结果。
 
+常用入口：
+
+```text
+/fastaction
+  API 注册页。
+
+/fastaction/test
+  测试台，用于验证 Planner 行为和 Provider 配置。
+
+/fastaction/cards
+  卡片库，用于预览卡片，并复制 CardDefinition、render 字段绑定和示例响应。
+```
+
+工作台必须保持宿主无关：只使用通用样例和模拟执行结果。真实企业 API 调用应由宿主系统通过 Host Executor Adapter 接入。
+
 ## 8. 验证
 
 ```bash

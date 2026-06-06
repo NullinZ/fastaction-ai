@@ -205,6 +205,22 @@ npm run dev
 
 Use it to inspect API definitions, provider settings, identities, card bindings, planner traces, and execution results.
 
+Useful routes:
+
+```text
+/fastaction
+  API Registry.
+
+/fastaction/test
+  Test Bench for planner behavior and provider configuration.
+
+/fastaction/cards
+  Card Gallery for previewing cards and copying CardDefinition, render bindings,
+  and sample responses.
+```
+
+The workbench is intentionally host-neutral. It uses generic examples and simulated execution results. Real enterprise API execution should be wired in the host application through a host executor adapter.
+
 ## 8. Verify
 
 ```bash

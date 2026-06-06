@@ -25,6 +25,8 @@ def make_api(risk=RiskLevel.READ):
             "properties": {
                 "resourceId": {
                     "type": "string",
+                    "label": {"zh": "资源", "en": "Resource"},
+                    "description": {"zh": "要查询的资源 ID", "en": "Resource ID to query"},
                     "source": ["context.current_resource.id", "clarify"],
                 }
             },
@@ -104,12 +106,12 @@ def test_planner_prefers_mentioned_entity_over_current_context():
     api.parameters["properties"]["resourceId"]["resolve_entity"] = "resource"
     instruction = DeterministicPlanner().plan(
         ChatRequest(
-            text="查询测试项目 0501 的状态",
+            text="查询测试资源 0501 的状态",
             context={
-                "current_resource": {"id": "res_wrong", "name": "当前默认项目"},
+                "current_resource": {"id": "res_wrong", "name": "当前默认资源"},
                 "available_resources": [
-                    {"id": "res_0501", "name": "测试项目 0501"},
-                    {"id": "res_0510", "name": "测试项目 0510"},
+                    {"id": "res_0501", "name": "测试资源 0501"},
+                    {"id": "res_0510", "name": "测试资源 0510"},
                 ],
             },
         ),
@@ -124,7 +126,17 @@ def test_planner_clarifies_when_required_param_missing():
     instruction = DeterministicPlanner().plan(ChatRequest(text="查一下当前状态"), [make_api()])
 
     assert instruction.action == "clarify"
+    assert instruction.api.id == "resource.status.get"
+    assert instruction.params == {}
     assert instruction.clarify.missing_params == ["resourceId"]
+    assert instruction.clarify.missing_param_details[0].name == "resourceId"
+    assert instruction.clarify.missing_param_details[0].label == {"zh": "资源", "en": "Resource"}
+    assert instruction.clarify.missing_param_details[0].type == "string"
+    assert instruction.clarify.missing_param_details[0].source == ["context.current_resource.id", "clarify"]
+    assert instruction.render.card_type == "missing_params_card"
+    assert instruction.render.fallback_card_type == "picker_card"
+    assert instruction.render.state == "missing_params"
+    assert instruction.pending_instruction.api_id == "resource.status.get"
 
 
 def test_planner_confirms_write_risk():

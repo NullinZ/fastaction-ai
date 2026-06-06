@@ -31,6 +31,14 @@ Host application owns:
 ```
 
 ```text
+Workbench must stay generic:
+  - Use generic examples such as workspace, customer, order, ticket, task, and attachment.
+  - Do not hard-code host business words, IDs, routes, dictionaries, or role policies.
+  - Do not call host business APIs from the generic test bench.
+  - Host-specific demos belong in the host application, not in FastAction Workbench.
+```
+
+```text
 工作台负责：
   - API 定义
   - 意图示例和关键词
@@ -54,12 +62,21 @@ Host application owns:
   - 最终鉴权
 ```
 
+```text
+工作台必须保持通用：
+  - 只使用 workspace、customer、order、ticket、task、attachment 等通用样例。
+  - 不硬编码宿主业务词、业务 ID、业务路由、业务字典或角色策略。
+  - 通用测试台不直接调用宿主业务 API。
+  - 宿主专用演示应放在宿主系统内，而不是放进 FastAction Workbench。
+```
+
 ## 2. Navigation / 入口
 
 ```mermaid
 flowchart LR
   Nav["FastAction Navigation"] --> Registry["API Registry<br/>/fastaction"]
   Nav --> TestBench["FastAction Test Bench<br/>/fastaction/test"]
+  Nav --> CardGallery["Card Gallery<br/>/fastaction/cards"]
   Registry --> List["Capability List"]
   Registry --> Detail["API Detail"]
   Detail --> Intent["Intent"]
@@ -75,6 +92,10 @@ flowchart LR
   Settings --> Identity["Identity Registry"]
   Settings --> Context["Context Registry"]
   Settings --> Options["Option Registry"]
+  CardGallery --> CoreCards["Core protocol cards"]
+  CardGallery --> ExampleCards["Business examples"]
+  CardGallery --> HostCards["Host UI samples"]
+  CardGallery --> CopySnippets["Copy Definition / Render / Response"]
 ```
 
 ## 3. API Registry Page / API 注册页
@@ -165,7 +186,71 @@ System settings:
   - Option 编辑
 ```
 
-## 5. No-Match, Fallback, and Rejection / 未命中、兜底和拒绝
+## 5. Card Gallery / 卡片库
+
+The Card Gallery is the visual and copyable catalog for result cards. It should stay generic and teach developers how to register card definitions and bind API response fields.
+
+Card Gallery 是结果卡片的可视化和可复制目录。它必须保持通用，用来指导开发者注册卡片定义并绑定 API 返回字段。
+
+Functional blocks:
+
+```text
+Header:
+  Total cards, core protocol count, business example count, host UI sample count.
+
+Filters:
+  Group filter and card_type / purpose / style search.
+
+Card item:
+  Standalone card image, chat-window preview, purpose, style tags, and copy buttons.
+
+Copy actions:
+  CardDefinition JSON, APIDefinition.render JSON, and sample API response JSON.
+```
+
+功能块：
+
+```text
+顶部：
+  卡片总数、核心协议数量、业务样例数量、宿主 UI 样例数量。
+
+筛选：
+  分组筛选，以及 card_type / 用途 / 样式搜索。
+
+卡片项：
+  卡片本体、聊天窗口效果、用途说明、样式标签和复制按钮。
+
+复制动作：
+  CardDefinition JSON、APIDefinition.render JSON、示例 API 响应 JSON。
+```
+
+Card tiers:
+
+```text
+Protocol cards:
+  Stable FastAction core contracts.
+
+Business examples:
+  Reusable enterprise patterns that should be copied or renamed by host apps.
+
+Host UI samples:
+  Product-specific UI around FastAction; documented as adapter examples only.
+```
+
+卡片分层：
+
+```text
+协议核心卡片：
+  FastAction 稳定核心协议。
+
+企业业务样例：
+  可复用企业模式，宿主系统可以复制或改名。
+
+宿主 UI 样例：
+  FastAction 外围的产品专属 UI，只作为 Adapter 示例。
+```
+
+## 6. No-Match, Fallback, and Rejection / 未命中、兜底和拒绝
 
 ```text
 no_match:
@@ -180,6 +265,7 @@ permission_denied:
 clarify:
   A capability was matched, but required parameters or entity resolution are ambiguous.
   The reply should request the missing value or show a picker card.
+  The payload should include clarify.missing_params and clarify.missing_param_details.
 
 provider_failure:
   The LLM or ASR provider failed.
@@ -198,17 +284,60 @@ permission_denied：
 clarify：
   已命中能力，但参数缺失或实体校准不确定。
   回复应追问缺失值或展示选择卡。
+  返回结构应包含 clarify.missing_params 和 clarify.missing_param_details。
 
 provider_failure：
   LLM 或 ASR Provider 调用失败。
   按配置选择 fail closed 或兜底。
 ```
 
-## 6. Confirmation UX / 确认交互
+Clarification card:
+
+```text
+The test bench should render a missing-parameter card with:
+  - matched API ID
+  - missing parameter label and technical name
+  - parameter type
+  - source hints such as context.*, params.*, clarify
+  - option_set or resolve_entity when present
+  - a Params JSON template action for debugging
+```
+
+补参数卡片：
+
+```text
+测试台应渲染缺失参数卡片，包含：
+  - 已命中的 API ID
+  - 缺失参数的人类名称和技术字段名
+  - 参数类型
+  - context.*、params.*、clarify 等来源提示
+  - 存在时展示 option_set 或 resolve_entity
+  - 生成 Params JSON 模板的调试动作
+```
+
+## 7. Confirmation UX / 确认交互
 
 Write operations must be confirmable before execution. The test bench should display confirmation cards but should not call real business APIs unless a host executor is explicitly wired for that environment.
 
 写操作必须可确认。测试台应展示确认卡；除非当前环境显式接入 Host Executor，否则不直接执行真实业务 API。
+
+Default generic behavior:
+
+```text
+1. The planner returns confirm or invoke_api.
+2. The test bench renders the confirmation and debug trace.
+3. After confirmation, the generic test bench writes a simulated ExecutionResult.
+4. Real execution is implemented by the host application's executor adapter.
+```
+
+默认通用行为：
+
+```text
+1. Planner 返回 confirm 或 invoke_api。
+2. 测试台渲染确认卡和调试 Trace。
+3. 用户确认后，通用测试台只写入模拟 ExecutionResult。
+4. 真实业务执行由宿主系统的 executor adapter 实现。
+```
 
 ```text
 Confirmation card should include:
@@ -242,7 +371,7 @@ Must bind user_id + api_id + tenant/workspace scope + parameter fingerprint + TT
 Never allowed for destructive, external, payment, notification, or batch-change actions.
 ```
 
-## 7. Context and Entity Debugging / 上下文和实体调试
+## 8. Context and Entity Debugging / 上下文和实体调试
 
 ```text
 Debug panel should show:
@@ -283,7 +412,7 @@ Resolver:
   action = clarify if scores are too close
 ```
 
-## 8. Field Binding / 字段绑定
+## 9. Field Binding / 字段绑定
 
 ```json
 {
@@ -317,7 +446,7 @@ Binding preview should show:
 5. 校验错误
 ```
 
-## 9. Workbench Persistence / 工作台持久化
+## 10. Workbench Persistence / 工作台持久化
 
 ```text
 Persist:
@@ -353,7 +482,7 @@ Do not persist:
   - 业务记录
 ```
 
-## 10. UI Principles / UI 原则
+## 11. UI Principles / UI 原则
 
 ```text
 1. Keep registration dense and scannable.

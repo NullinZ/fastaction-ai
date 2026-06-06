@@ -37,7 +37,7 @@ const helpTexts = {
   keywordsZh: '一行一个关键词，例如“待办”“任务”“todo”。',
   endpoint: '真实 API 路径或宿主代理路径，例如 /api/v1/tasks/my-todos。不要填前端页面地址。',
   risk: '只读接口用 read；会写数据用 write；删除/不可逆操作用 destructive。',
-  parameters: 'JSON Schema。示例：{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string","source":["context.project_id"]}}}',
+  parameters: 'JSON Schema。示例：{"type":"object","required":["workspace_id"],"properties":{"workspace_id":{"type":"string","source":["context.workspace_id"]}}}',
   response: '控制返回数据怎么进入提示和日志。常用 data_path: "$"。',
   cardType: '选择结果展示卡片，例如 list_card 用于列表，confirm_card 用于确认。'
 }
@@ -66,7 +66,7 @@ const planResult = ref(null)
 const loadError = ref('')
 const plannerMode = ref('deterministic')
 const plannerProviderId = ref('')
-const plannerIdentityId = ref('example-operator')
+const plannerIdentityId = ref('')
 const providerEditor = ref(null)
 const selectedProviderConfigId = ref('')
 const providerSaving = ref(false)
@@ -231,8 +231,7 @@ function showHelp(event, text) {
 }
 
 function moveHelp(event) {
-  if (!helpTooltip.value) return
-  showHelp(event, helpTooltip.value.text)
+  // Keep the bubble fixed after it appears; do not chase the cursor.
 }
 
 function hideHelp() {
@@ -948,8 +947,11 @@ onMounted(async () => {
                 <p class="mt-0.5 text-base font-semibold text-success-700">{{ cardDefinitions.length }}</p>
               </div>
             </div>
-            <div class="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs leading-5 text-neutral-500">
-              Host Adapter 可通过 Registry API 导入企业既有系统能力。
+            <div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs leading-5 text-neutral-500">
+              <span>Host Adapter 可通过 Registry API 导入企业既有系统能力。</span>
+              <router-link to="/fastaction/cards" class="rounded-lg border border-neutral-200 px-2 py-1 font-medium text-neutral-700 hover:bg-neutral-50">
+                打开卡片库
+              </router-link>
             </div>
           </div>
         </div>
@@ -1061,7 +1063,7 @@ onMounted(async () => {
 
             <div v-if="!apiEditor" class="flex flex-1 items-center justify-center p-8 text-center text-neutral-500">
               <div>
-                <i class="fas fa-diagram-project mb-2 text-2xl text-neutral-400"></i>
+                <i class="fas fa-sitemap mb-2 text-2xl text-neutral-400"></i>
                 <p>从左侧选择 API，或新增一个 API Definition。</p>
               </div>
             </div>

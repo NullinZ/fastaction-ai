@@ -163,6 +163,8 @@ flowchart TD
 - [Quickstart](docs/QUICKSTART.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [工作台设计](docs/WORKBENCH.md)
+- [卡片库](docs/CARD_GALLERY.zh-CN.md)
+- [Card Gallery](docs/CARD_GALLERY.md)
 - [开发计划](docs/DEVELOPMENT_PLAN.md)
 - [迁移边界](docs/MIGRATION_BOUNDARY.md)
 - [发布流程](docs/RELEASE_PROCESS.md)

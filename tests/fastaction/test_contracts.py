@@ -1,4 +1,5 @@
 from fastaction.domain.enums import OperationType, RiskLevel
+from fastaction.registries.memory import default_card_definitions
 from fastaction.schemas import APIDefinition, CardBinding, CardDefinition
 
 
@@ -48,3 +49,10 @@ def test_card_definition_and_binding_contracts():
 
     assert card.states == ["loading", "success", "empty", "error"]
     assert binding.field_bindings["title"] == "$.name"
+
+
+def test_default_card_definitions_include_actionable_clarify_cards():
+    card_types = {card.card_type for card in default_card_definitions()}
+
+    assert "picker_card" in card_types
+    assert "missing_params_card" in card_types

@@ -43,8 +43,20 @@ class InstructionRender(FastActionModel):
     field_bindings: dict[str, str] = Field(default_factory=dict)
 
 
+class MissingParamDetail(FastActionModel):
+    name: str
+    label: LocalizedText = ""
+    type: str | None = None
+    description: LocalizedText = ""
+    source: list[str] = Field(default_factory=list)
+    option_set: str | None = None
+    resolve_entity: str | None = None
+    required: bool = True
+
+
 class ClarifyPayload(FastActionModel):
     missing_params: list[str] = Field(default_factory=list)
+    missing_param_details: list[MissingParamDetail] = Field(default_factory=list)
     options_api: str | None = None
     card_type: str = "picker_card"
 

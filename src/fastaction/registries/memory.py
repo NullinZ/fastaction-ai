@@ -143,11 +143,33 @@ def default_card_definitions() -> list[CardDefinition]:
             card_type="confirm_card",
             name={"zh": "通用确认卡", "en": "Generic confirm card"},
             data_contract={"type": "object", "required": ["title", "action"], "properties": {}},
+            states=["pending", "confirmed", "cancelled"],
         ),
         CardDefinition(
             card_type="result_card",
             name={"zh": "通用结果卡", "en": "Generic result card"},
             data_contract={"type": "object", "required": ["status"], "properties": {}},
+        ),
+        CardDefinition(
+            card_type="picker_card",
+            name={"zh": "通用选择卡", "en": "Generic picker card"},
+            data_contract={
+                "type": "object",
+                "required": ["title", "options"],
+                "properties": {"title": {"type": "string"}, "options": {"type": "array"}},
+            },
+            states=["missing_params", "ambiguous", "selected"],
+        ),
+        CardDefinition(
+            card_type="missing_params_card",
+            name={"zh": "缺失参数卡", "en": "Missing parameters card"},
+            data_contract={
+                "type": "object",
+                "required": ["missing_param_details"],
+                "properties": {"api_id": {"type": "string"}, "missing_param_details": {"type": "array"}},
+            },
+            states=["missing_params"],
+            fallback={"card_type": "picker_card"},
         ),
         CardDefinition(
             card_type="generic_data_card",

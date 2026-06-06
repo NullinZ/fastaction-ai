@@ -12,6 +12,9 @@
           <router-link to="/fastaction/test" class="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">
             Test Bench
           </router-link>
+          <router-link to="/fastaction/cards" class="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">
+            Card Gallery
+          </router-link>
         </nav>
       </div>
     </header>
@@ -20,4 +23,3 @@
     </main>
   </div>
 </template>
-

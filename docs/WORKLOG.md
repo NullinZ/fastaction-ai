@@ -265,3 +265,118 @@ PYTHONPATH=src /path/to/host/.venv/bin/python -m pytest tests/fastaction -q
 python3 scripts/validate_fastaction_boundaries.py
   Result: passed.
 ```
+
+## 2026-06-06 Generic Workbench Boundary / 通用工作台边界
+
+```text
+Goal:
+  Keep the registry page and test bench independent enough to ship as the
+  FastAction open-source workbench.
+
+Decision:
+  The generic workbench may edit FastAction definitions, preview cards, inspect
+  traces, configure providers, identities, context entities, and options, and
+  record simulated execution results. It must not contain host-specific routes,
+  dictionaries, roles, entity names, or real business execution code.
+
+Host-specific demos:
+  End-to-end examples that execute a real enterprise API belong in the host
+  application. They can embed FastAction and call its APIs, but they should not
+  be copied into the generic workbench.
+```
+
+```text
+目标：
+  让 API 注册页和测试台足够独立，可以作为 FastAction 开源工作台发布。
+
+决策：
+  通用工作台可以编辑 FastAction 定义、预览卡片、查看 Trace、配置 Provider、
+  Identity、Context Entity 和 Option，并记录模拟 ExecutionResult。它不能包含
+  宿主业务路由、业务字典、业务角色、业务实体名称或真实业务执行代码。
+
+宿主专用演示：
+  会执行真实企业 API 的端到端样例应留在宿主系统中。它可以嵌入 FastAction 并调用
+  FastAction API，但不应复制到通用工作台。
+```
+
+## 2026-06-06 Clarify Missing Parameter Card / 缺失参数补充卡片
+
+```text
+Goal:
+  Make the clarify state actionable when an API is matched but required
+  parameters are missing.
+
+Implemented:
+  - Added missing_param_details to ClarifyPayload.
+  - DeterministicPlanner now returns API ref, partial params, risk, picker render
+    state, missing_params, and missing_param_details for clarify instructions.
+  - Missing parameter detail includes name, label, type, description, source,
+    option_set, resolve_entity, and required.
+  - Generic workbench test bench renders a compact missing-parameter card.
+  - The card can generate a Params JSON template for debugging.
+
+Verification:
+  - PYTHONPATH=src python -m pytest tests/fastaction -q
+    Result: 37 passed.
+  - cd frontend/workbench && npm run build
+    Result: passed.
+```
+
+```text
+目标：
+  当已经命中 API 但必填参数缺失时，让 clarify 状态可操作，而不是泛泛提示。
+
+已实现：
+  - ClarifyPayload 增加 missing_param_details。
+  - DeterministicPlanner 在 clarify 指令中返回 API ref、部分参数、风险、
+    picker 渲染状态、missing_params 和 missing_param_details。
+  - 缺失参数详情包含 name、label、type、description、source、option_set、
+    resolve_entity 和 required。
+  - 通用工作台测试台渲染紧凑的缺失参数卡片。
+  - 卡片支持生成 Params JSON 调试模板。
+```
+
+## 2026-06-06 Card Gallery / 卡片库
+
+```text
+Goal:
+  Make card examples discoverable, copyable, and clearly separated from
+  host-specific business UI.
+
+Implemented:
+  - Added Workbench route /fastaction/cards.
+  - Added cardGalleryDefinitions.js as the card catalog data source.
+  - Added CardGalleryView with group filters, search, visual previews, and copy
+    buttons for CardDefinition, APIDefinition.render, and sample API response.
+  - Added CardPreviewRenderer so the Gallery can show each card as a standalone
+    card image and as an embedded assistant chat result.
+  - Split card catalog into protocol cards, business examples, and host UI samples.
+  - Added picker_card and missing_params_card to default Card Registry seeds.
+  - Changed missing-parameter planner render type to missing_params_card with
+    picker_card fallback.
+  - Added CARD_GALLERY.md and CARD_GALLERY.zh-CN.md.
+
+Boundary:
+  Product-specific homepage cards remain host adapter examples. They are not
+  FastAction core cards.
+```
+
+```text
+目标：
+  让卡片样例可发现、可复制，并明确区分引擎核心协议和宿主业务 UI。
+
+已实现：
+  - 新增 Workbench 路由 /fastaction/cards。
+  - 新增 cardGalleryDefinitions.js 作为卡片目录数据源。
+  - 新增 CardGalleryView，支持分组筛选、搜索、样式预览，以及复制
+    CardDefinition、APIDefinition.render、示例 API 响应。
+  - 新增 CardPreviewRenderer，让 Gallery 同时展示卡片本体和嵌入
+    assistant 对话消息后的效果。
+  - 卡片目录分为协议核心卡片、企业业务样例、宿主 UI 样例。
+  - 默认 Card Registry 种子补充 picker_card 和 missing_params_card。
+  - 缺参 Planner 渲染类型调整为 missing_params_card，并以 picker_card 兜底。
+  - 新增 CARD_GALLERY.md 和 CARD_GALLERY.zh-CN.md。
+
+边界：
+  产品专属首页卡片只作为 host adapter 示例，不进入 FastAction 核心卡片。
+```

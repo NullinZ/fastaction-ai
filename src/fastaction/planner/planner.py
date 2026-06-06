@@ -10,6 +10,7 @@ from fastaction.schemas.instruction import (
     ClarifyPayload,
     InstructionAPIRef,
     InstructionRender,
+    MissingParamDetail,
     PendingInstruction,
 )
 
@@ -64,6 +65,7 @@ class DeterministicPlanner:
             )
 
         api = best.api
+        api_ref = _api_ref(api)
         params, missing = self.parameter_resolver.resolve(
             api,
             context=request.context,
@@ -79,8 +81,17 @@ class DeterministicPlanner:
                     "en": "API matched, but required parameters are missing.",
                 },
                 reply={"zh": "还需要补充一些信息。", "en": "I need a bit more information."},
+                api=api_ref,
+                params=params,
+                risk=api.policy.risk,
+                render=InstructionRender(
+                    card_type="missing_params_card",
+                    fallback_card_type="picker_card",
+                    state="missing_params",
+                ),
                 clarify=ClarifyPayload(
                     missing_params=missing,
+                    missing_param_details=_missing_param_details(api, missing),
                     options_api=_find_options_api(missing[0], apis),
                 ),
                 pending_instruction=PendingInstruction(
@@ -91,12 +102,6 @@ class DeterministicPlanner:
                 candidates=summaries,
             )
 
-        api_ref = InstructionAPIRef(
-            id=api.id,
-            operation_type=api.operation_type,
-            method=api.request.method,
-            endpoint=api.request.endpoint,
-        )
         render = InstructionRender(
             card_type=api.render.card_type,
             fallback_card_type=api.render.fallback_card_type,
@@ -140,6 +145,44 @@ class DeterministicPlanner:
         )
 
 
+def _api_ref(api: APIDefinition) -> InstructionAPIRef:
+    return InstructionAPIRef(
+        id=api.id,
+        operation_type=api.operation_type,
+        method=api.request.method,
+        endpoint=api.request.endpoint,
+    )
+
+
+def _missing_param_details(api: APIDefinition, missing: list[str]) -> list[MissingParamDetail]:
+    properties = api.parameters.get("properties", {})
+    if not isinstance(properties, dict):
+        properties = {}
+    details: list[MissingParamDetail] = []
+    for name in missing:
+        definition = properties.get(name, {})
+        if not isinstance(definition, dict):
+            definition = {}
+        details.append(
+            MissingParamDetail(
+                name=name,
+                label=_localized_value(
+                    definition.get("label")
+                    or definition.get("title")
+                    or definition.get("name")
+                    or definition.get("x-label"),
+                    name,
+                ),
+                type=_string_or_none(definition.get("type")),
+                description=_localized_value(definition.get("description"), ""),
+                source=_string_list(definition.get("source")),
+                option_set=_string_or_none(definition.get("option_set")),
+                resolve_entity=_string_or_none(definition.get("resolve_entity")),
+            )
+        )
+    return details
+
+
 def _find_options_api(parameter_name: str, apis: list[APIDefinition]) -> str | None:
     normalized = parameter_name.lower()
     if normalized.endswith("id"):
@@ -148,3 +191,27 @@ def _find_options_api(parameter_name: str, apis: list[APIDefinition]) -> str | N
             if api.operation_type == "list" and resource_name in api.id.lower():
                 return api.id
     return None
+
+
+def _localized_value(value: object, default: str) -> str | dict[str, str]:
+    if isinstance(value, dict):
+        result = {str(key): str(item) for key, item in value.items() if str(item).strip()}
+        return result or default
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return default
+
+
+def _string_or_none(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return []

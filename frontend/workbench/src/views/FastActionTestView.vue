@@ -54,7 +54,7 @@ const identityDeleting = ref(false)
 const plannerMode = ref('hybrid')
 const noApiHitStrategy = ref('hybrid')
 const plannerProviderId = ref('')
-const plannerIdentityId = ref('example-operator')
+const plannerIdentityId = ref('')
 const testInput = ref('')
 const testSending = ref(false)
 const testResult = ref(null)
@@ -73,12 +73,18 @@ const phoneScale = ref(1)
 const contextText = ref(formatJson({
   auth: { access_token: '__admin_runtime_token__' },
   workspace_id: 'all',
+  current_workspace: { id: 'demo_workspace', name: 'Demo Workspace' },
+  available_entities: {
+    workspace: [
+      { id: 'demo_workspace', name: 'Demo Workspace', aliases: ['演示空间', '默认空间'] }
+    ]
+  },
   limit: 5,
   locale: 'zh-CN'
 }))
 const paramsText = ref(formatJson({}))
 const chatMessages = ref(defaultChatMessages())
-const quickQuestions = ['我有哪些待办任务', '查看工作区状态', '本周有什么风险', '下一步要做什么']
+const quickQuestions = ['我有哪些待办任务', '把状态改成完成', '查询本周统计', '上传附件并创建记录']
 let mediaRecorder = null
 let mediaStream = null
 let recordingTimer = null
@@ -254,6 +260,83 @@ function isConfirmResult(result) {
   return result?.action === 'confirm'
 }
 
+function isClarifyResult(result) {
+  return result?.action === 'clarify' && Boolean(result?.clarify)
+}
+
+function clarifyMissingDetails(result) {
+  const details = Array.isArray(result?.clarify?.missing_param_details)
+    ? result.clarify.missing_param_details
+    : []
+  const names = Array.isArray(result?.clarify?.missing_params) ? result.clarify.missing_params : []
+  const normalized = details.map(item => normalizeMissingParamDetail(item)).filter(item => item.name)
+  const known = new Set(normalized.map(item => item.name))
+  for (const name of names) {
+    if (!known.has(name)) normalized.push(normalizeMissingParamDetail({ name }))
+  }
+  return normalized
+}
+
+function normalizeMissingParamDetail(item = {}) {
+  if (typeof item === 'string') return { name: item, label: item, type: '', source: [] }
+  const name = String(item.name || '').trim()
+  return {
+    name,
+    label: item.label || name,
+    type: item.type || '',
+    description: item.description || '',
+    source: Array.isArray(item.source) ? item.source : [],
+    option_set: item.option_set || '',
+    resolve_entity: item.resolve_entity || '',
+    required: item.required !== false
+  }
+}
+
+function missingParamLabel(item) {
+  return localizedResultText(item.label) || item.name
+}
+
+function missingParamDescription(item) {
+  return localizedResultText(item.description)
+}
+
+function missingParamMeta(item) {
+  return [
+    item.type,
+    item.option_set ? `字典 ${item.option_set}` : '',
+    item.resolve_entity ? `实体 ${item.resolve_entity}` : ''
+  ].filter(Boolean).join(' · ') || 'required'
+}
+
+function missingParamHint(item) {
+  if (item.option_set) return `从字典 ${item.option_set} 选择名称或 code。`
+  if (item.resolve_entity) return `需要从 ${item.resolve_entity} 候选列表中校准真实 ID。`
+  const contextSources = item.source.filter(source => source.startsWith('context.'))
+  if (contextSources.length) return `可由上下文 ${contextSources.join(' / ')} 提供，或在 Params JSON 中填写。`
+  if (item.source.includes('clarify')) return '需要用户补充该值。'
+  return '在 Params JSON 中填写该字段后重试。'
+}
+
+function clarifyUserDescription(result) {
+  const details = clarifyMissingDetails(result)
+  const apiId = pendingApiLabel(result)
+  return `已识别到 ${apiId}，但还缺 ${details.length || 1} 个必填参数。请补充这些信息后再次发送。`
+}
+
+function fillMissingParamsTemplate(result) {
+  let params = {}
+  try {
+    params = parseJsonField(paramsText.value, '参数 JSON')
+  } catch {
+    params = {}
+  }
+  for (const detail of clarifyMissingDetails(result)) {
+    if (detail.name && !(detail.name in params)) params[detail.name] = ''
+  }
+  paramsText.value = formatJson(params)
+  toast.success('已生成 Params 模板', '补充字段值后重新发送即可')
+}
+
 function pendingApiLabel(result) {
   return result?.pending_instruction?.api_id || result?.api?.id || '-'
 }
@@ -279,51 +362,19 @@ function traceParamSummary(result) {
     .map(([key, value]) => `${key}: ${formatPendingValue(value)}`)
 }
 
-function fileTypeLabel(value) {
-  return {
-    floor_plan: '图片',
-    construction: '文件',
-    elevation: '文件',
-    water_electricity: '资料',
-    detail: '节点图'
-  }[value] || value || '附件'
-}
-
-function filePurposeLabel(value) {
-  return {
-    design: '设计',
-    construction: '施工',
-    review: '审核',
-    archive: '归档'
-  }[value] || value || ''
-}
-
 function confirmUserTitle(result) {
-  if (pendingApiLabel(result) === 'files.upload') return '确认上传附件'
   const apiName = resultApiLabel(result)
   return apiName && apiName !== '-' ? `确认${apiName}` : '操作待确认'
 }
 
 function confirmUserDescription(result) {
-  const params = pendingParams(result)
-  if (pendingApiLabel(result) === 'files.upload') {
-    const projectName = params.workspace_id || '当前工作区'
-    const purpose = filePurposeLabel(params.file_purpose)
-    const type = fileTypeLabel(params.file_type)
-    return `将把这张图片登记到「${projectName}」的${purpose}${type}中，请确认后继续。`
-  }
-  return '这一步会提交业务数据，请确认信息无误后继续。'
+  const apiId = pendingApiLabel(result)
+  const risk = pendingRiskLabel(result)
+  return `这一步会执行已注册能力 ${apiId}，风险级别为 ${risk}。测试台不会直接调用你的业务系统，只会记录一次模拟 ExecutionResult。`
 }
 
 function confirmUserDetails(result) {
   const params = pendingParams(result)
-  if (pendingApiLabel(result) === 'files.upload') {
-    return [
-      { label: '工作区', value: params.workspace_id || '-' },
-      { label: '附件', value: `${filePurposeLabel(params.file_purpose)}${fileTypeLabel(params.file_type)}` },
-      { label: '文件', value: params.file_name || params.file_name || '待上传图片' }
-    ]
-  }
   return Object.entries(params)
     .filter(([key]) => !['file'].includes(key))
     .slice(0, 3)
@@ -518,59 +569,6 @@ function buildAttachmentContext(attachments = []) {
     local_preview: true,
     source: 'fastaction_test_bench'
   }))
-}
-
-function shouldPlanFileUpload(text, attachments = []) {
-  if (!attachments.length) return false
-  const normalized = String(text || '').trim()
-  if (!normalized) return true
-  if (/(分析|识别|建议|看看|看一下|解读|评价)/.test(normalized)) return false
-  return /(上传|保存|提交|创建|新增|登记).*(附件|图片|文件|资料|文件|附件)|(附件|图片|文件|资料|文件).*(上传|保存|提交|创建|新增|登记)/.test(normalized)
-}
-
-function inferFileType(text) {
-  const normalized = String(text || '')
-  if (/(水电|电路|给排水)/.test(normalized)) return 'water_electric'
-  if (/(立面|墙面|墙体)/.test(normalized)) return 'elevation'
-  if (/(文件|施工)/.test(normalized)) return 'construction'
-  if (/(图片|户型图|布局图|平面|户型)/.test(normalized)) return 'floor_plan'
-  return null
-}
-
-function inferFilePurpose(text) {
-  const normalized = String(text || '')
-  if (/(验收|检查|核验)/.test(normalized)) return 'acceptance'
-  if (/(归档|留档|备案)/.test(normalized)) return 'archive'
-  if (/(施工|落地|现场)/.test(normalized)) return 'construction'
-  if (/(初步|设计|方案|想法|草案|概念)/.test(normalized)) return 'design'
-  return null
-}
-
-function sanitizeFileUploadContext(context) {
-  const next = { ...context }
-  if (String(next.workspace_id || '').toLowerCase() === 'all') {
-    delete next.workspace_id
-  }
-  return next
-}
-
-function buildFileUploadContext(parsedContext, attachments = [], text = '') {
-  if (!attachments.length) return {}
-  const first = attachments[0]
-  const fileType = parsedContext.file_type || inferFileType(text)
-  const filePurpose = parsedContext.file_purpose || inferFilePurpose(text)
-  return {
-    upload: {
-      ...(parsedContext.upload || {}),
-      file: '__host_file__',
-      file_name: first.name,
-      mime_type: first.type,
-      size_bytes: first.size
-    },
-    file_name: parsedContext.file_name || first.name,
-    ...(fileType ? { file_type: fileType } : {}),
-    ...(filePurpose ? { file_purpose: filePurpose } : {})
-  }
 }
 
 function mergeInputModalities(value, modality) {
@@ -926,10 +924,9 @@ async function deleteIdentity() {
 async function sendTestMessage() {
   const attachmentsForSend = selectedAttachments.value.slice()
   const rawText = testInput.value.trim()
-  const planFileUpload = shouldPlanFileUpload(rawText, attachmentsForSend)
-  const text = rawText || (planFileUpload ? '上传附件' : (attachmentsForSend.length ? '请分析我上传的图片' : ''))
+  const text = rawText || (attachmentsForSend.length ? '请分析我上传的附件' : '')
   if (!text && !attachmentsForSend.length) {
-    toast.warning('请输入测试语句或上传图片', '例如：我有哪些待办任务')
+    toast.warning('请输入测试语句或上传附件', '例如：我有哪些待办任务')
     return
   }
   try {
@@ -939,15 +936,13 @@ async function sendTestMessage() {
       ...parsedContext,
       test_session_id: testSessionId.value
     }
-    const planningContext = planFileUpload ? sanitizeFileUploadContext(baseContext) : baseContext
     const context = attachmentContext.length
       ? {
-          ...planningContext,
-          ...(planFileUpload ? buildFileUploadContext(planningContext, attachmentsForSend, text) : {}),
+          ...baseContext,
           attachments: attachmentContext,
-          input_modalities: mergeInputModalities(planningContext.input_modalities, 'image')
+          input_modalities: mergeInputModalities(baseContext.input_modalities, 'image')
         }
-      : planningContext
+      : baseContext
     const params = parseJsonField(paramsText.value, '参数 JSON')
     appendMessage('user', text, null, attachmentsForSend)
     testInput.value = ''
@@ -1002,8 +997,8 @@ async function loadSettings() {
       const preferredProvider = providerConfigs.value.find(item => item.id === 'qwen-balanced-service') || providerConfigs.value.find(item => item.is_active !== false)
       plannerProviderId.value = preferredProvider?.id || ''
     }
-    if (!plannerIdentityId.value || !identityDefinitions.value.some(item => item.id === plannerIdentityId.value)) {
-      plannerIdentityId.value = identityDefinitions.value[0]?.id || 'example-operator'
+    if (plannerIdentityId.value && !identityDefinitions.value.some(item => item.id === plannerIdentityId.value)) {
+      plannerIdentityId.value = ''
     }
   } finally {
     loading.value = false
@@ -1161,7 +1156,7 @@ onBeforeUnmount(() => {
                     class="min-w-0 max-w-[84%] rounded-2xl px-3.5 py-2.5 text-sm leading-6 shadow-sm"
                     :class="message.role === 'user' ? 'rounded-br-md bg-neutral-950 text-white' : 'rounded-bl-md bg-white text-neutral-800'"
                   >
-                    <p v-if="!(message.role === 'assistant' && isConfirmResult(message.result))" class="whitespace-pre-wrap break-words">{{ message.text }}</p>
+                    <p v-if="!(message.role === 'assistant' && (isConfirmResult(message.result) || isClarifyResult(message.result)))" class="whitespace-pre-wrap break-words">{{ message.text }}</p>
                     <div
                       v-if="message.role === 'assistant' && isConfirmResult(message.result)"
                       class="mt-3 min-w-0 overflow-hidden rounded-2xl border border-warning/20 bg-warning-50 p-3 text-left text-neutral-800"
@@ -1197,6 +1192,38 @@ onBeforeUnmount(() => {
                           确认执行
                         </button>
                       </div>
+                    </div>
+                    <div
+                      v-if="message.role === 'assistant' && isClarifyResult(message.result)"
+                      class="mt-3 min-w-0 overflow-hidden rounded-2xl border border-info-100 bg-info-50 p-3 text-left text-neutral-800"
+                    >
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-info-700">待补充</span>
+                        <span class="min-w-0 break-words text-sm font-semibold text-neutral-900">缺少必要参数</span>
+                      </div>
+                      <p class="mt-2 break-words text-sm leading-6 text-neutral-700">{{ clarifyUserDescription(message.result) }}</p>
+                      <div class="mt-3 space-y-2">
+                        <div
+                          v-for="item in clarifyMissingDetails(message.result)"
+                          :key="item.name"
+                          class="rounded-xl bg-white/80 p-2.5"
+                        >
+                          <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-semibold text-neutral-900">{{ missingParamLabel(item) }}</span>
+                            <span class="font-mono text-xs text-neutral-500">{{ item.name }}</span>
+                            <span class="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-600">{{ missingParamMeta(item) }}</span>
+                          </div>
+                          <p v-if="missingParamDescription(item)" class="mt-1 text-xs leading-5 text-neutral-600">{{ missingParamDescription(item) }}</p>
+                          <p class="mt-1 text-xs leading-5 text-neutral-500">{{ missingParamHint(item) }}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="mt-3 w-full rounded-full bg-neutral-950 px-3 py-1.5 text-xs font-medium text-white"
+                        @click="fillMissingParamsTemplate(message.result)"
+                      >
+                        生成 Params 模板
+                      </button>
                     </div>
                     <div v-if="message.attachments?.length" class="mt-3 grid grid-cols-2 gap-2">
                       <div
@@ -1401,6 +1428,20 @@ onBeforeUnmount(() => {
                             >
                               {{ line }}
                             </p>
+                          </div>
+                        </div>
+                        <div v-if="isClarifyResult(message.result)" class="rounded-lg bg-white p-2">
+                          <p class="mb-1 text-neutral-500">Missing Parameters</p>
+                          <div class="space-y-2 text-xs leading-5 text-neutral-800">
+                            <div
+                              v-for="item in clarifyMissingDetails(message.result)"
+                              :key="`debug_missing_${item.name}`"
+                              class="rounded-lg bg-neutral-50 p-2"
+                            >
+                              <p class="break-all font-mono text-neutral-900">{{ item.name }}</p>
+                              <p class="break-all text-neutral-600">{{ missingParamMeta(item) }}</p>
+                              <p class="break-all text-neutral-500">{{ missingParamHint(item) }}</p>
+                            </div>
                           </div>
                         </div>
                         <p class="break-all font-mono text-xs text-neutral-500">run: {{ message.result.run_id || '-' }}</p>
