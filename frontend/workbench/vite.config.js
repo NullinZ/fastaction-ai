@@ -12,11 +12,10 @@ export default defineConfig({
   server: {
     port: 5177,
     proxy: {
-      '/fastaction': {
+      '^/fastaction/(health|chat|api-definitions|card-definitions|card-bindings|provider-presets|provider-configs|audio|identity-definitions|knowledge-definitions|option-sets|runs|test-messages|execution-results)': {
         target: process.env.FASTACTION_API_BASE_URL || 'http://localhost:8000',
         changeOrigin: true
       }
     }
   }
 })
-

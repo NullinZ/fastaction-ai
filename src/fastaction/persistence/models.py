@@ -91,6 +91,19 @@ class FastActionKnowledgeDefinitionModel(FastActionBase):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class FastActionOptionSetModel(FastActionBase):
+    __tablename__ = "option_sets"
+    __table_args__ = {"schema": FASTACTION_SCHEMA}
+
+    id = Column(String(160), primary_key=True)
+    host_app = Column(String(120), nullable=False, index=True, default="default")
+    category = Column(String(80), nullable=False, index=True, default="enum")
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class FastActionRunRecordModel(FastActionBase):
     __tablename__ = "run_records"
     __table_args__ = {"schema": FASTACTION_SCHEMA}

@@ -160,6 +160,8 @@ flowchart TD
 
 ## Documentation
 
+- [Quickstart](docs/QUICKSTART.md)
+- [快速指引](docs/QUICKSTART.zh-CN.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workbench](docs/WORKBENCH.md)
 - [Development Plan](docs/DEVELOPMENT_PLAN.md)
@@ -196,6 +198,49 @@ card:
     title: $.title
     subtitle: $.customer_name
     status: $.status
+```
+
+Option sets are registered as data, not hardcoded in the engine:
+
+```json
+{
+  "id": "task_status",
+  "name": { "en": "Task status" },
+  "host_app": "example",
+  "category": "enum",
+  "options": [
+    { "value": "todo", "label": { "en": "To do" }, "aliases": ["open", "pending"] },
+    { "value": "done", "label": { "en": "Done" }, "aliases": ["completed"] }
+  ]
+}
+```
+
+`value` is the canonical code passed to the business API. `label` is the human/model-facing name, and `aliases` are natural-language matching terms. Registration also accepts `code/name` input and normalizes it to `value/label`.
+
+`APIDefinition.parameters.properties.<name>.option_set` points to the registered option set. The preparation layer uses labels and aliases to normalize natural-language values before API execution.
+
+```http
+GET /api/v1/fastaction/option-sets/task_status
+POST /api/v1/fastaction/option-sets/task_status/resolve
+```
+
+```json
+{
+  "text": "still pending"
+}
+```
+
+Response:
+
+```json
+{
+  "matched": true,
+  "option": {
+    "code": "todo",
+    "value": "todo",
+    "name": "To do"
+  }
+}
 ```
 
 ## Example Instruction

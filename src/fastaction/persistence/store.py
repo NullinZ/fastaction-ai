@@ -19,6 +19,7 @@ from fastaction.persistence.models import (
     FastActionExecutionResultModel,
     FastActionIdentityDefinitionModel,
     FastActionKnowledgeDefinitionModel,
+    FastActionOptionSetModel,
     FastActionProviderConfigModel,
     FastActionRunRecordModel,
     FastActionTestMessageModel,
@@ -31,6 +32,7 @@ from fastaction.schemas import (
     ExecutionResult,
     IdentityDefinition,
     KnowledgeDefinition,
+    OptionSetDefinition,
     ProviderConfig,
     RunRecord,
 )
@@ -122,6 +124,10 @@ def load_runtime_from_store(runtime) -> None:
         for row in session.query(FastActionKnowledgeDefinitionModel).order_by(FastActionKnowledgeDefinitionModel.id).all():
             runtime.knowledge_definitions.upsert(KnowledgeDefinition.model_validate(row.payload))
 
+        runtime.option_sets.clear()
+        for row in session.query(FastActionOptionSetModel).order_by(FastActionOptionSetModel.id).all():
+            runtime.option_sets.upsert(OptionSetDefinition.model_validate(row.payload))
+
 
 def persist_api_definition(item: APIDefinition) -> None:
     _run_write(lambda session: _upsert_api_definition(session, item))
@@ -169,6 +175,14 @@ def persist_knowledge_definition(item: KnowledgeDefinition) -> None:
 
 def delete_knowledge_definition(item_id: str) -> None:
     _run_write(lambda session: _delete_by_pk(session, FastActionKnowledgeDefinitionModel, item_id))
+
+
+def persist_option_set(item: OptionSetDefinition) -> None:
+    _run_write(lambda session: _upsert_option_set(session, item))
+
+
+def delete_option_set(item_id: str) -> None:
+    _run_write(lambda session: _delete_by_pk(session, FastActionOptionSetModel, item_id))
 
 
 def persist_run_record(run: RunRecord) -> None:
@@ -328,6 +342,9 @@ def _seed_defaults(session: Session, runtime) -> None:
     for item in runtime.knowledge_definitions.list():
         if session.get(FastActionKnowledgeDefinitionModel, item.id) is None:
             _upsert_knowledge_definition(session, item)
+    for item in runtime.option_sets.list():
+        if session.get(FastActionOptionSetModel, item.id) is None:
+            _upsert_option_set(session, item)
 
 
 def _run_write(callback) -> None:
@@ -412,6 +429,19 @@ def _upsert_knowledge_definition(session: Session, item: KnowledgeDefinition) ->
     session.merge(
         FastActionKnowledgeDefinitionModel(
             id=item.id,
+            is_active=item.is_active,
+            payload=item.model_dump(mode="json"),
+            updated_at=datetime.utcnow(),
+        )
+    )
+
+
+def _upsert_option_set(session: Session, item: OptionSetDefinition) -> None:
+    session.merge(
+        FastActionOptionSetModel(
+            id=item.id,
+            host_app=item.host_app,
+            category=item.category,
             is_active=item.is_active,
             payload=item.model_dump(mode="json"),
             updated_at=datetime.utcnow(),

@@ -154,6 +154,60 @@ Do not:
 - Do not delete host-local FastAction code before host package integration passes.
 ```
 
+## 2026-06-06 Quickstart Documentation / 快速指引文档
+
+```text
+Goal:
+  Add a step-by-step FastAction setup and API integration guide for open-source
+  adopters.
+
+Scope:
+  Generic package installation, router mounting, workbench startup, provider
+  settings, API registration, context/entity preparation, write confirmation,
+  host execution, and test-bench verification.
+
+Boundary:
+  The guide must not include host business account data, real project names,
+  real tokens, or private provider keys. Host-specific examples stay in each
+  host application's own documentation.
+```
+
+```text
+目标：
+  增加一篇面向开源使用者的 FastAction 设置和 API 接入快速指引。
+
+范围：
+  通用包安装、路由挂载、工作台启动、Provider 设置、API 注册、上下文和实体准备、
+  写操作确认、宿主执行器以及测试台验证。
+
+边界：
+  文档不得包含宿主业务账号、真实项目名、真实 token 或私有 Provider key。
+  宿主业务样例留在宿主应用文档中。
+```
+
+Completed:
+
+```text
+docs/QUICKSTART.md
+docs/QUICKSTART.zh-CN.md
+
+README.md and README.zh-CN.md now link to both quickstart files.
+The quickstart covers install, router mounting, API registration, context/entity
+preparation, planning, write confirmation, host execution, execution result
+write-back, workbench startup, and verification commands.
+```
+
+已完成：
+
+```text
+docs/QUICKSTART.md
+docs/QUICKSTART.zh-CN.md
+
+README.md 和 README.zh-CN.md 已挂载两份快速指引。
+快速指引覆盖安装、路由挂载、API 注册、上下文和实体准备、自然语言规划、
+写操作确认、宿主执行、ExecutionResult 回写、工作台启动和验证命令。
+```
+
 ## 2026-06-06 Mentioned Entity Resolution / 显式提及实体校准
 
 ```text

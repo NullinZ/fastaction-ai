@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import AdminLayout from './AdminLayout.vue'
 import { useToast } from '@/composables/useToast'
 import {
@@ -27,6 +27,20 @@ const methodOptions = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 const authModeOptions = ['user_token', 'user_cookie', 'service_token', 'bearer_token', 'api_key', 'oauth2_client_credentials', 'basic', 'custom_header', 'mtls', 'host_proxy', 'none']
 const riskOptions = ['read', 'write', 'destructive', 'external']
 const statusOptions = ['active', 'disabled', 'draft']
+const API_EDITOR_DRAFT_KEY = 'fastaction.workbench.apiEditorDraft.v1'
+const helpTexts = {
+  apiId: '唯一能力 ID，建议用 domain.action，例如 tasks.my_todos、orders.create。',
+  nameZh: '给运营/管理员看的名称，例如“我的待办任务”。',
+  operationType: '选择 API 行为类型：查询列表用 list，新增用 create，修改用 update，危险操作用 delete/destructive 配合确认。',
+  descriptionZh: '说明用户什么意图会命中这个 API。例如“查询当前用户的待办任务列表”。',
+  examplesZh: '一行一个用户说法，例如“我有哪些待办任务”。',
+  keywordsZh: '一行一个关键词，例如“待办”“任务”“todo”。',
+  endpoint: '真实 API 路径或宿主代理路径，例如 /api/v1/tasks/my-todos。不要填前端页面地址。',
+  risk: '只读接口用 read；会写数据用 write；删除/不可逆操作用 destructive。',
+  parameters: 'JSON Schema。示例：{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string","source":["context.project_id"]}}}',
+  response: '控制返回数据怎么进入提示和日志。常用 data_path: "$"。',
+  cardType: '选择结果展示卡片，例如 list_card 用于列表，confirm_card 用于确认。'
+}
 
 const loading = ref(true)
 const saving = ref(false)
@@ -63,6 +77,11 @@ const identityEditor = ref(null)
 const selectedIdentityConfigId = ref('')
 const identitySaving = ref(false)
 const identityDeleting = ref(false)
+const draftSavedAt = ref('')
+const apiSaveError = ref('')
+const apiSaveSuccess = ref('')
+const helpTooltip = ref(null)
+let restoringDraft = false
 
 const healthState = computed(() => health.value?.status || 'unknown')
 const activeApis = computed(() => apiDefinitions.value.filter(item => item.status !== 'disabled'))
@@ -143,6 +162,81 @@ function parseJsonField(value, label, fallback = {}) {
   } catch (error) {
     throw new Error(`${label} 不是合法 JSON：${error.message}`)
   }
+}
+
+function saveApiEditorDraft() {
+  if (restoringDraft || !apiEditor.value || !isEditing.value) return
+  try {
+    const payload = {
+      savedAt: new Date().toISOString(),
+      selectedApiId: selectedApiId.value,
+      isCreating: isCreating.value,
+      activeTab: activeTab.value,
+      editor: apiEditor.value
+    }
+    localStorage.setItem(API_EDITOR_DRAFT_KEY, JSON.stringify(payload))
+    draftSavedAt.value = payload.savedAt
+  } catch {
+    // Draft storage is best-effort; API save remains the source of truth.
+  }
+}
+
+function restoreApiEditorDraft() {
+  try {
+    const raw = localStorage.getItem(API_EDITOR_DRAFT_KEY)
+    if (!raw) return false
+    const payload = JSON.parse(raw)
+    if (!payload?.editor) return false
+    restoringDraft = true
+    selectedApiId.value = payload.selectedApiId || ''
+    apiEditor.value = payload.editor
+    isEditing.value = true
+    isCreating.value = Boolean(payload.isCreating)
+    activeTab.value = payload.activeTab || 'basic'
+    draftSavedAt.value = payload.savedAt || ''
+    toast.info('已恢复暂存草稿', '上次未保存的 API 注册内容已恢复')
+    return true
+  } catch {
+    return false
+  } finally {
+    restoringDraft = false
+  }
+}
+
+function clearApiEditorDraft() {
+  try {
+    localStorage.removeItem(API_EDITOR_DRAFT_KEY)
+  } catch {
+    // Ignore storage cleanup errors.
+  }
+  draftSavedAt.value = ''
+}
+
+function draftSavedLabel(value) {
+  if (!value) return ''
+  return new Date(value).toLocaleTimeString('zh-CN', { hour12: false })
+}
+
+function showHelp(event, text) {
+  const rect = event.currentTarget?.getBoundingClientRect?.()
+  const rawX = event.clientX || rect?.right || 24
+  const rawY = event.clientY || rect?.bottom || 24
+  const maxX = Math.max(16, window.innerWidth - 360)
+  const maxY = Math.max(16, window.innerHeight - 160)
+  helpTooltip.value = {
+    text,
+    x: Math.min(Math.max(16, rawX + 14), maxX),
+    y: Math.min(Math.max(16, rawY + 14), maxY)
+  }
+}
+
+function moveHelp(event) {
+  if (!helpTooltip.value) return
+  showHelp(event, helpTooltip.value.text)
+}
+
+function hideHelp() {
+  helpTooltip.value = null
 }
 
 function makeAuthDefinition(mode) {
@@ -357,6 +451,7 @@ function buildApiPayload(options = {}) {
   const id = editor.id.trim()
   if (!id) throw new Error('API ID 不能为空')
   if (!editor.nameZh.trim()) throw new Error('中文名称不能为空')
+  if (!editor.descriptionZh.trim()) throw new Error('中文意图描述不能为空')
   if (!editor.endpoint.trim()) throw new Error('Endpoint 不能为空')
 
   const auth = parseJsonField(editor.authText, '鉴权配置', makeAuthDefinition(editor.authMode))
@@ -417,6 +512,8 @@ function selectApi(api) {
   isCreating.value = false
   activeTab.value = 'basic'
   planResult.value = null
+  apiSaveError.value = ''
+  apiSaveSuccess.value = ''
 }
 
 function startCreate() {
@@ -426,6 +523,9 @@ function startCreate() {
   isCreating.value = true
   activeTab.value = 'basic'
   planResult.value = null
+  apiSaveError.value = ''
+  apiSaveSuccess.value = ''
+  saveApiEditorDraft()
 }
 
 function startEdit() {
@@ -433,9 +533,15 @@ function startEdit() {
   apiEditor.value = makeEditor(selectedApi.value)
   isEditing.value = true
   isCreating.value = false
+  apiSaveError.value = ''
+  apiSaveSuccess.value = ''
+  saveApiEditorDraft()
 }
 
 function cancelEdit() {
+  clearApiEditorDraft()
+  apiSaveError.value = ''
+  apiSaveSuccess.value = ''
   if (selectedApi.value) {
     apiEditor.value = makeEditor(selectedApi.value)
     isEditing.value = false
@@ -629,6 +735,8 @@ function ensureArray(value) {
 async function saveApi() {
   try {
     saving.value = true
+    apiSaveError.value = ''
+    apiSaveSuccess.value = ''
     const payload = buildApiPayload()
     const saved = await saveFastActionApiDefinition(payload, !isCreating.value)
     const index = apiDefinitions.value.findIndex(item => item.id === saved.id)
@@ -638,9 +746,12 @@ async function saveApi() {
     apiEditor.value = makeEditor(saved)
     isEditing.value = false
     isCreating.value = false
+    clearApiEditorDraft()
+    apiSaveSuccess.value = `${saved.id} 已保存`
     toast.success('保存成功', `${saved.id} 已更新`)
   } catch (error) {
-    toast.error('保存失败', error.userMessage || error.message || 'API Definition 保存失败')
+    apiSaveError.value = error.userMessage || error.message || 'API Definition 保存失败'
+    toast.error('保存失败', apiSaveError.value)
   } finally {
     saving.value = false
   }
@@ -797,7 +908,16 @@ function formatDate(value) {
   return new Date(value).toLocaleString('zh-CN', { hour12: false })
 }
 
-onMounted(() => loadPage())
+watch(
+  [apiEditor, isEditing, isCreating, activeTab],
+  () => saveApiEditorDraft(),
+  { deep: true }
+)
+
+onMounted(async () => {
+  await loadPage()
+  restoreApiEditorDraft()
+})
 </script>
 
 <template>
@@ -933,6 +1053,9 @@ onMounted(() => loadPage())
                 >
                   {{ tabItem[1] }}
                 </button>
+                <span v-if="isEditing && draftSavedAt" class="inline-flex items-center rounded-full bg-info-50 px-2.5 py-1 text-xs text-info-700">
+                  已暂存 {{ draftSavedLabel(draftSavedAt) }}
+                </span>
               </div>
             </div>
 
@@ -944,13 +1067,22 @@ onMounted(() => loadPage())
             </div>
 
             <div v-else class="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+              <div v-if="apiSaveError" class="rounded-xl border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+                <p class="font-semibold">保存失败</p>
+                <p class="mt-1">{{ apiSaveError }}</p>
+              </div>
+              <div v-else-if="apiSaveSuccess" class="rounded-xl border border-success-200 bg-success-50 px-4 py-3 text-sm text-success-700">
+                {{ apiSaveSuccess }}
+              </div>
               <section v-show="activeTab === 'basic'" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <label class="text-sm font-medium text-neutral-700">
                   API ID
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.apiId)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.apiId)" @blur="hideHelp">i</button>
                   <input v-model.trim="apiEditor.id" :disabled="!isEditing || (!isCreating && apiEditor.originalId)" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
                 </label>
                 <label class="text-sm font-medium text-neutral-700">
                   中文名称
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.nameZh)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.nameZh)" @blur="hideHelp">i</button>
                   <input v-model.trim="apiEditor.nameZh" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
                 </label>
                 <label class="text-sm font-medium text-neutral-700">
@@ -969,6 +1101,7 @@ onMounted(() => loadPage())
                 </label>
                 <label class="text-sm font-medium text-neutral-700">
                   操作类型
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.operationType)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.operationType)" @blur="hideHelp">i</button>
                   <select v-model="apiEditor.operationType" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
                     <option v-for="item in operationOptions" :key="item" :value="item">{{ item }}</option>
                   </select>
@@ -978,6 +1111,7 @@ onMounted(() => loadPage())
               <section v-show="activeTab === 'intent'" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
                   中文意图描述
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.descriptionZh)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.descriptionZh)" @blur="hideHelp">i</button>
                   <textarea v-model="apiEditor.descriptionZh" :disabled="!isEditing" rows="3" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
                 </label>
                 <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
@@ -986,10 +1120,12 @@ onMounted(() => loadPage())
                 </label>
                 <label class="text-sm font-medium text-neutral-700">
                   中文示例
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.examplesZh)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.examplesZh)" @blur="hideHelp">i</button>
                   <textarea v-model="apiEditor.examplesZhText" :disabled="!isEditing" rows="5" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
                 </label>
                 <label class="text-sm font-medium text-neutral-700">
                   中文关键词
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.keywordsZh)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.keywordsZh)" @blur="hideHelp">i</button>
                   <textarea v-model="apiEditor.keywordsZhText" :disabled="!isEditing" rows="5" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
                 </label>
               </section>
@@ -1009,6 +1145,7 @@ onMounted(() => loadPage())
                 </label>
                 <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
                   Endpoint
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.endpoint)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.endpoint)" @blur="hideHelp">i</button>
                   <input v-model.trim="apiEditor.endpoint" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
                 </label>
                 <label class="text-sm font-medium text-neutral-700">
@@ -1017,6 +1154,7 @@ onMounted(() => loadPage())
                 </label>
                 <label class="text-sm font-medium text-neutral-700">
                   风险等级
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.risk)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.risk)" @blur="hideHelp">i</button>
                   <select v-model="apiEditor.risk" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
                     <option v-for="item in riskOptions" :key="item" :value="item">{{ item }}</option>
                   </select>
@@ -1042,10 +1180,12 @@ onMounted(() => loadPage())
               <section v-show="activeTab === 'schema'" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <label class="text-sm font-medium text-neutral-700">
                   参数 Schema JSON
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.parameters)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.parameters)" @blur="hideHelp">i</button>
                   <textarea v-model="apiEditor.parametersText" :disabled="!isEditing" rows="14" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
                 </label>
                 <label class="text-sm font-medium text-neutral-700">
                   返回配置 JSON
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.response)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.response)" @blur="hideHelp">i</button>
                   <textarea v-model="apiEditor.responseText" :disabled="!isEditing" rows="14" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
                 </label>
                 <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
@@ -1058,6 +1198,7 @@ onMounted(() => loadPage())
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <label class="text-sm font-medium text-neutral-700">
                     Card Type
+                    <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.cardType)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.cardType)" @blur="hideHelp">i</button>
                     <select v-model="apiEditor.cardType" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
                       <option v-for="card in cardDefinitions" :key="card.card_type" :value="card.card_type">{{ card.card_type }}</option>
                       <option value="generic_data_card">generic_data_card</option>
@@ -1238,6 +1379,13 @@ onMounted(() => loadPage())
           </aside>
         </section>
       </template>
+    </div>
+    <div
+      v-if="helpTooltip"
+      class="pointer-events-none fixed z-[9999] max-w-[340px] rounded-lg bg-neutral-950 px-3 py-2 text-xs leading-5 text-white shadow-lg"
+      :style="{ left: `${helpTooltip.x}px`, top: `${helpTooltip.y}px` }"
+    >
+      {{ helpTooltip.text }}
     </div>
   </AdminLayout>
 </template>

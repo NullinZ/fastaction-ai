@@ -159,6 +159,8 @@ flowchart TD
 
 ## 文档
 
+- [快速指引](docs/QUICKSTART.zh-CN.md)
+- [Quickstart](docs/QUICKSTART.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [工作台设计](docs/WORKBENCH.md)
 - [开发计划](docs/DEVELOPMENT_PLAN.md)
@@ -195,6 +197,49 @@ card:
     title: $.title
     subtitle: $.customer_name
     status: $.status
+```
+
+字典和枚举也是注册数据，不应该硬编码在引擎里：
+
+```json
+{
+  "id": "task_status",
+  "name": { "zh": "任务状态" },
+  "host_app": "example",
+  "category": "enum",
+  "options": [
+    { "value": "todo", "label": { "zh": "待办" }, "aliases": ["未处理", "待处理"] },
+    { "value": "done", "label": { "zh": "完成" }, "aliases": ["已完成"] }
+  ]
+}
+```
+
+`value` 就是业务 API 最终要传的 code，`label` 是给人和模型看的 name，`aliases` 是自然语言识别辅助词。注册时也兼容 `code/name` 写法，FastAction 会规范化成 `value/label`。
+
+`APIDefinition.parameters.properties.<name>.option_set` 引用已注册字典。调用准备层会用 label 和 aliases 把自然语言值校准成 API 需要的规范值。
+
+```http
+GET /api/v1/fastaction/option-sets/task_status
+POST /api/v1/fastaction/option-sets/task_status/resolve
+```
+
+```json
+{
+  "text": "这个任务还是待处理"
+}
+```
+
+返回：
+
+```json
+{
+  "matched": true,
+  "option": {
+    "code": "todo",
+    "value": "todo",
+    "name": "待办"
+  }
+}
 ```
 
 ## 结构化指令示例

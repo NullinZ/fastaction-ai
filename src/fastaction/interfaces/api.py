@@ -16,6 +16,7 @@ from fastaction.persistence import (
     clear_test_messages,
     delete_api_definition as persist_delete_api_definition,
     delete_identity_definition as persist_delete_identity_definition,
+    delete_option_set as persist_delete_option_set,
     delete_provider_config as persist_delete_provider_config,
     is_initialized as fastaction_persistence_initialized,
     list_execution_results,
@@ -27,6 +28,7 @@ from fastaction.persistence import (
     persist_execution_result,
     persist_identity_definition,
     persist_knowledge_definition,
+    persist_option_set,
     persist_provider_config,
     record_test_message,
 )
@@ -52,6 +54,7 @@ from fastaction.schemas import (
     IdentityDefinition,
     Instruction,
     KnowledgeDefinition,
+    OptionSetDefinition,
     ProviderConfig,
     RenderResult,
     RunRecord,
@@ -124,6 +127,12 @@ class TestMessageCreate(BaseModel):
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     result: dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OptionSetResolvePayload(BaseModel):
+    text: str = Field(..., min_length=1, max_length=500)
+    locale: str = "zh"
+    min_score: float = Field(0.75, ge=0.0, le=1.0)
 
 
 @router.get("/health")
@@ -423,6 +432,51 @@ def upsert_knowledge_definition(payload: KnowledgeDefinition):
     return saved
 
 
+@router.get("/option-sets")
+def list_option_sets():
+    return runtime.option_sets.list()
+
+
+@router.post("/option-sets")
+def upsert_option_set(payload: OptionSetDefinition):
+    saved = runtime.option_sets.upsert(payload)
+    persist_option_set(saved)
+    return saved
+
+
+@router.get("/option-sets/{option_set_id}")
+def get_option_set(option_set_id: str):
+    return _get_or_404(runtime.option_sets, option_set_id)
+
+
+@router.post("/option-sets/{option_set_id}/resolve")
+def resolve_option_set(option_set_id: str, payload: OptionSetResolvePayload):
+    option_set = _get_or_404(runtime.option_sets, option_set_id)
+    match = _resolve_option(option_set, payload.text, min_score=payload.min_score)
+    return {
+        "option_set_id": option_set.id,
+        "input": payload.text,
+        "matched": match is not None,
+        "option": match,
+    }
+
+
+@router.put("/option-sets/{option_set_id}")
+def update_option_set(option_set_id: str, payload: OptionSetDefinition):
+    if payload.id != option_set_id:
+        raise HTTPException(status_code=400, detail="payload id must match path id")
+    saved = runtime.option_sets.upsert(payload)
+    persist_option_set(saved)
+    return saved
+
+
+@router.delete("/option-sets/{option_set_id}")
+def delete_option_set(option_set_id: str):
+    _delete_or_404(runtime.option_sets, option_set_id)
+    persist_delete_option_set(option_set_id)
+    return {"deleted": True}
+
+
 @router.post("/execution-results")
 def accept_execution_result(payload: ExecutionResult):
     persist_execution_result(payload)
@@ -483,6 +537,71 @@ def _delete_or_404(registry, item_id: str):
         registry.delete(item_id)
     except RegistryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _resolve_option(option_set: OptionSetDefinition, text: str, *, min_score: float) -> dict[str, Any] | None:
+    normalized_text = _normalize_option_text(text)
+    if not normalized_text:
+        return None
+    matches: list[tuple[float, dict[str, Any]]] = []
+    for option in option_set.options:
+        if not option.is_active:
+            continue
+        best_score = 0.0
+        best_term = ""
+        for term in _option_terms(option):
+            normalized_term = _normalize_option_text(term)
+            if not normalized_term:
+                continue
+            if normalized_term == normalized_text:
+                score = 1.0
+            elif normalized_term in normalized_text:
+                score = min(0.98, 0.86 + min(len(normalized_term), len(normalized_text)) / 1000)
+            else:
+                score = _sequence_score(normalized_text, normalized_term)
+            if score > best_score:
+                best_score = score
+                best_term = term
+        if best_score >= min_score:
+            matches.append(
+                (
+                    best_score,
+                    {
+                        "code": option.value,
+                        "value": option.value,
+                        "name": _localized_text(option.label),
+                        "label": option.label,
+                        "matched_term": best_term,
+                        "score": round(best_score, 4),
+                    },
+                )
+            )
+    if not matches:
+        return None
+    matches.sort(key=lambda item: item[0], reverse=True)
+    return matches[0][1]
+
+
+def _option_terms(option) -> list[str]:
+    terms = [option.value]
+    if isinstance(option.label, dict):
+        terms.extend(str(value) for value in option.label.values() if value is not None)
+    elif isinstance(option.label, str):
+        terms.append(option.label)
+    terms.extend(option.aliases)
+    return [term for term in terms if isinstance(term, str) and term.strip()]
+
+
+def _normalize_option_text(value: str) -> str:
+    import re
+
+    return re.sub(r"[\s\-_·,，.。:：/\\()（）【】\\[\\]{}]+", "", str(value)).lower()
+
+
+def _sequence_score(left: str, right: str) -> float:
+    from difflib import SequenceMatcher
+
+    return SequenceMatcher(None, left, right).ratio()
 
 
 def _summarize_context(context: dict[str, Any]) -> dict[str, Any]:

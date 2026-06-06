@@ -46,18 +46,25 @@ class ParameterResolver:
         provided_params: dict[str, Any],
         text: str,
     ) -> Any:
+        definition = api.parameters.get("properties", {}).get(parameter_name, {})
         value = provided_params.get(parameter_name)
+        if isinstance(definition, dict):
+            value = self._normalize_option_value(definition, value)
         if value is not None:
             return value
-        definition = api.parameters.get("properties", {}).get(parameter_name, {})
         if isinstance(definition, dict):
             value = self._from_entity_definition(definition, context, text)
             if value is not None:
                 return value
         value = self._from_sources(api.parameter_sources(parameter_name), context, provided_params)
+        if isinstance(definition, dict):
+            value = self._normalize_option_value(definition, value)
         if value is not None:
             return value
         if isinstance(definition, dict):
+            value = self._from_option_set_text(definition, text)
+            if value is not None:
+                return value
             value = self._from_text_aliases(definition, text)
             if value is not None:
                 return value
@@ -101,6 +108,32 @@ class ParameterResolver:
                     return value
         return None
 
+    def _from_option_set_text(self, definition: dict[str, Any], text: str) -> Any:
+        option_set = _option_set(definition)
+        if option_set is None or not text:
+            return None
+        normalized_text = _compact_text(text).lower()
+        for option in option_set.options:
+            if not option.is_active:
+                continue
+            for term in _option_terms(option):
+                if _compact_text(term).lower() in normalized_text:
+                    return option.value
+        return None
+
+    def _normalize_option_value(self, definition: dict[str, Any], value: Any) -> Any:
+        option_set = _option_set(definition)
+        if option_set is None or value is None:
+            return value
+        normalized_value = _compact_text(str(value)).lower()
+        for option in option_set.options:
+            if not option.is_active:
+                continue
+            for term in _option_terms(option):
+                if _compact_text(term).lower() == normalized_value:
+                    return option.value
+        return value
+
     def _from_entity_definition(
         self,
         definition: dict[str, Any],
@@ -131,6 +164,31 @@ class ParameterResolver:
 
 def _compact_text(value: str) -> str:
     return "".join(char for char in value if not char.isspace())
+
+
+def _option_set(definition: dict[str, Any]):
+    option_set_id = definition.get("option_set")
+    if not isinstance(option_set_id, str) or not option_set_id.strip():
+        return None
+    try:
+        from fastaction.registries import runtime
+
+        option_set = runtime.option_sets.get(option_set_id.strip())
+    except Exception:
+        return None
+    if not option_set.is_active:
+        return None
+    return option_set
+
+
+def _option_terms(option) -> list[str]:
+    terms = [option.value]
+    if isinstance(option.label, dict):
+        terms.extend(str(value) for value in option.label.values() if value is not None)
+    elif isinstance(option.label, str):
+        terms.append(option.label)
+    terms.extend(option.aliases)
+    return [term for term in terms if isinstance(term, str) and term.strip()]
 
 
 def _entity_candidates(context: dict[str, Any], entity_type: str) -> list[Any]:

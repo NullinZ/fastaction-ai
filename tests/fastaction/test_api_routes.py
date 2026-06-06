@@ -57,6 +57,38 @@ def test_fastaction_default_identities_are_registered():
     assert {"example-admin", "example-operator", "example-viewer"}.issubset(identity_ids)
 
 
+def test_fastaction_option_set_can_be_registered_and_resolved_with_code_name_shape():
+    client = make_client()
+    payload = {
+        "id": "example.task_status_test",
+        "name": {"zh": "任务状态", "en": "Task status"},
+        "host_app": "example",
+        "category": "enum",
+        "options": [
+            {"code": "todo", "name": {"zh": "待办", "en": "To do"}, "aliases": ["待处理", "未处理"]},
+            {"code": "done", "name": {"zh": "完成", "en": "Done"}, "aliases": ["已完成"]},
+        ],
+    }
+
+    create_response = client.post("/fastaction/option-sets", json=payload)
+    assert create_response.status_code == 200
+    saved = create_response.json()
+    assert saved["options"][0]["value"] == "todo"
+    assert saved["options"][0]["label"]["zh"] == "待办"
+
+    resolve_response = client.post(
+        "/fastaction/option-sets/example.task_status_test/resolve",
+        json={"text": "这个任务还是待处理"},
+    )
+    assert resolve_response.status_code == 200
+    resolved = resolve_response.json()
+    assert resolved["matched"] is True
+    assert resolved["option"]["code"] == "todo"
+    assert resolved["option"]["name"] == "待办"
+
+    client.delete("/fastaction/option-sets/example.task_status_test")
+
+
 def test_fastaction_identity_filters_disallowed_apis():
     client = make_client()
 

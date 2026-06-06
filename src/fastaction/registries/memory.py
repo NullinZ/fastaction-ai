@@ -8,6 +8,7 @@ from fastaction.schemas import (
     CardDefinition,
     IdentityDefinition,
     KnowledgeDefinition,
+    OptionSetDefinition,
     ProviderConfig,
 )
 
@@ -22,6 +23,7 @@ class FastActionRuntime:
         self.provider_configs = InMemoryRegistry[ProviderConfig](lambda item: item.id)
         self.identity_definitions = InMemoryRegistry[IdentityDefinition](lambda item: item.id)
         self.knowledge_definitions = InMemoryRegistry[KnowledgeDefinition](lambda item: item.id)
+        self.option_sets = InMemoryRegistry[OptionSetDefinition](lambda item: item.id)
 
     def seed_defaults(self) -> None:
         for api_definition in default_api_definitions():
@@ -32,6 +34,8 @@ class FastActionRuntime:
             self.provider_configs.upsert(provider)
         for identity in default_identity_definitions():
             self.identity_definitions.upsert(identity)
+        for option_set in default_option_sets():
+            self.option_sets.upsert(option_set)
 
 
 def default_api_definitions() -> list[APIDefinition]:
@@ -151,6 +155,10 @@ def default_card_definitions() -> list[CardDefinition]:
             data_contract={"type": "object", "properties": {}},
         ),
     ]
+
+
+def default_option_sets() -> list[OptionSetDefinition]:
+    return []
 
 
 def default_provider_presets() -> list[ProviderConfig]:

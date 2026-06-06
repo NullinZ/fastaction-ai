@@ -4,7 +4,8 @@ from fastaction.domain.errors import ProviderError
 from fastaction.domain.enums import OperationType, RiskLevel
 from fastaction.planner import DeterministicPlanner, LLMPlanner
 from fastaction.providers import ProviderResponse
-from fastaction.schemas import APIDefinition, ChatRequest, ProviderConfig
+from fastaction.registries import runtime
+from fastaction.schemas import APIDefinition, ChatRequest, OptionSetDefinition, ProviderConfig
 
 
 def make_api(risk=RiskLevel.READ):
@@ -48,6 +49,54 @@ def test_planner_invokes_api_when_context_resolves_required_param():
     assert instruction.action == "invoke_api"
     assert instruction.api.id == "resource.status.get"
     assert instruction.params == {"resourceId": "res_001"}
+
+
+def test_planner_resolves_registered_option_set_aliases_from_text():
+    runtime.option_sets.upsert(
+        OptionSetDefinition(
+            id="example.document_kind",
+            name={"zh": "文档类型", "en": "Document kind"},
+            options=[
+                {"value": "proposal", "label": {"zh": "方案", "en": "Proposal"}, "aliases": ["初稿"]},
+                {"value": "contract", "label": {"zh": "合同", "en": "Contract"}},
+            ],
+        )
+    )
+    runtime.option_sets.upsert(
+        OptionSetDefinition(
+            id="example.document_purpose",
+            name={"zh": "文档用途", "en": "Document purpose"},
+            options=[
+                {"value": "review", "label": {"zh": "评审", "en": "Review"}, "aliases": ["内部评审"]},
+                {"value": "archive", "label": {"zh": "归档", "en": "Archive"}},
+            ],
+        )
+    )
+    api = APIDefinition(
+        id="documents.submit",
+        name={"zh": "提交文档", "en": "Submit document"},
+        operation_type=OperationType.CREATE,
+        intent={
+            "description": "submit document",
+            "examples": {"zh": ["提交文档"]},
+            "keywords": {"zh": ["提交文档", "方案"]},
+        },
+        request={"method": "POST", "endpoint": "/documents"},
+        parameters={
+            "type": "object",
+            "required": ["document_kind", "document_purpose"],
+            "properties": {
+                "document_kind": {"type": "string", "option_set": "example.document_kind"},
+                "document_purpose": {"type": "string", "option_set": "example.document_purpose"},
+            },
+        },
+    )
+
+    instruction = DeterministicPlanner().plan(ChatRequest(text="提交文档：一份初稿，用于内部评审"), [api])
+
+    assert instruction.action == "invoke_api"
+    assert instruction.params["document_kind"] == "proposal"
+    assert instruction.params["document_purpose"] == "review"
 
 
 def test_planner_prefers_mentioned_entity_over_current_context():
