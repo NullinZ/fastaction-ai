@@ -5,17 +5,20 @@ import { useToast } from '@/composables/useToast'
 import {
   deleteFastActionApiDefinition,
   deleteFastActionIdentityDefinition,
+  deleteFastActionOptionSet,
   deleteFastActionProviderConfig,
   getFastActionApiDefinitions,
   getFastActionCardDefinitions,
   getFastActionHealth,
   getFastActionIdentityDefinitions,
   getFastActionKnowledgeDefinitions,
+  getFastActionOptionSets,
   getFastActionProviderConfigs,
   getFastActionRuns,
   planFastActionChat,
   saveFastActionApiDefinition,
   saveFastActionIdentityDefinition,
+  saveFastActionOptionSet,
   saveFastActionProviderConfig,
   testFastActionProviderConfig
 } from '@/api/fastaction'
@@ -27,6 +30,14 @@ const methodOptions = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 const authModeOptions = ['user_token', 'user_cookie', 'service_token', 'bearer_token', 'api_key', 'oauth2_client_credentials', 'basic', 'custom_header', 'mtls', 'host_proxy', 'none']
 const riskOptions = ['read', 'write', 'destructive', 'external']
 const statusOptions = ['active', 'disabled', 'draft']
+const parameterTypeOptions = ['string', 'number', 'integer', 'boolean', 'array', 'object']
+const parameterSourceOptions = [
+  { value: 'user_input', label: '用户补充', hint: '从自然语言抽取或追问' },
+  { value: 'option_set', label: '共享字典', hint: '名称、别名映射为 code' },
+  { value: 'context', label: '上下文', hint: '登录用户、当前项目等' },
+  { value: 'attachment', label: '附件', hint: '先上传文件再传 ID' },
+  { value: 'default', label: '默认值', hint: '固定值或系统默认' }
+]
 const API_EDITOR_DRAFT_KEY = 'fastaction.workbench.apiEditorDraft.v1'
 const helpTexts = {
   apiId: '唯一能力 ID，建议用 domain.action，例如 tasks.my_todos、orders.create。',
@@ -52,6 +63,7 @@ const cardDefinitions = ref([])
 const providerConfigs = ref([])
 const identityDefinitions = ref([])
 const knowledgeDefinitions = ref([])
+const optionSets = ref([])
 const runs = ref([])
 const selectedApiId = ref('')
 const activeTab = ref('basic')
@@ -77,6 +89,11 @@ const identityEditor = ref(null)
 const selectedIdentityConfigId = ref('')
 const identitySaving = ref(false)
 const identityDeleting = ref(false)
+const selectedOptionSetId = ref('')
+const selectedParameterName = ref('')
+const optionSetEditor = ref(null)
+const optionSetSaving = ref(false)
+const optionSetDeleting = ref(false)
 const draftSavedAt = ref('')
 const apiSaveError = ref('')
 const apiSaveSuccess = ref('')
@@ -90,6 +107,7 @@ const selectedCardType = computed(() => apiEditor.value?.cardType || selectedApi
 const selectedCardDefinition = computed(() => cardDefinitions.value.find(card => card.card_type === selectedCardType.value) || null)
 const selectedProviderConfig = computed(() => providerConfigs.value.find(item => item.id === selectedProviderConfigId.value) || null)
 const selectedIdentityConfig = computed(() => identityDefinitions.value.find(item => item.id === selectedIdentityConfigId.value) || null)
+const selectedOptionSet = computed(() => optionSets.value.find(item => item.id === selectedOptionSetId.value) || null)
 const activeProviderConfigs = computed(() => providerConfigs.value.filter(item => item.is_active !== false))
 const filteredApis = computed(() => {
   const keyword = searchText.value.trim().toLowerCase()
@@ -111,6 +129,69 @@ const sampleData = computed(() => parseJsonSafely(sampleDataText.value, {}))
 const previewProps = computed(() => applyFieldBindings(sampleData.value, fieldBindings.value))
 const previewItems = computed(() => Array.isArray(previewProps.value.items) ? previewProps.value.items : [])
 const canEdit = computed(() => Boolean(apiEditor.value))
+const parameterSchema = computed(() => parseJsonSafely(apiEditor.value?.parametersText, { type: 'object', required: [], properties: {} }))
+const parameterRows = computed(() => {
+  const schema = parameterSchema.value || {}
+  const required = Array.isArray(schema.required) ? schema.required : []
+  return Object.entries(schema.properties || {}).map(([name, config]) => ({
+    name,
+    label: parameterLabel(name, config),
+    type: parameterType(config),
+    required: required.includes(name),
+    source: parameterSource(config),
+    sourceKind: parameterSourceKind(config),
+    optionSet: parameterOptionSet(config),
+    resolver: config?.resolve_entity || config?.resolver || ''
+  }))
+})
+const selectedParameter = computed(() => parameterRows.value.find(item => item.name === selectedParameterName.value) || parameterRows.value[0] || null)
+const requiredParameterRows = computed(() => parameterRows.value.filter(item => item.required))
+const optionSetRefs = computed(() => [...new Set(parameterRows.value.map(item => item.optionSet).filter(Boolean))])
+const contextRefs = computed(() => [...new Set(parameterRows.value.map(item => item.source).filter(value => value.includes('context.')))])
+const optionSetUsageMap = computed(() => {
+  const usage = {}
+  for (const api of apiDefinitions.value) {
+    const properties = api.parameters?.properties || {}
+    for (const config of Object.values(properties)) {
+      const optionSetId = parameterOptionSet(config)
+      if (!optionSetId) continue
+      if (!usage[optionSetId]) usage[optionSetId] = new Set()
+      usage[optionSetId].add(api.id)
+    }
+  }
+  return Object.fromEntries(Object.entries(usage).map(([key, value]) => [key, value.size]))
+})
+const selectedOptionSetUsageApis = computed(() => {
+  if (!selectedOptionSet.value) return []
+  return apiDefinitions.value.filter((api) => Object.values(api.parameters?.properties || {}).some(config => parameterOptionSet(config) === selectedOptionSet.value.id))
+})
+const missingOptionSetRefs = computed(() => optionSetRefs.value.filter(id => !optionSets.value.some(item => item.id === id)))
+const registrationSteps = computed(() => [
+  { id: 'basic', label: '基础', title: '定义能力', hint: '命名这条企业 API 能力', done: Boolean(apiEditor.value?.id && apiEditor.value?.nameZh) },
+  { id: 'intent', label: '意图', title: '让 AI 知道何时使用', hint: '描述用户会怎么说', done: Boolean(apiEditor.value?.descriptionZh && splitLines(apiEditor.value?.examplesZhText).length) },
+  { id: 'request', label: '请求', title: '接入真实接口', hint: '方法、路径、鉴权和超时', done: Boolean(apiEditor.value?.method && apiEditor.value?.endpoint && apiEditor.value?.authMode) },
+  { id: 'prep', label: '调用准备', title: '把自然语言变成入参', hint: '参数、字典、上下文和附件', done: (requiredParameterRows.value.length === 0 || parameterRows.value.length > 0) && !missingOptionSetRefs.value.length },
+  { id: 'policy', label: '权限确认', title: '控制谁能调、是否确认', hint: '权限、风险和幂等性', done: Boolean(apiEditor.value?.risk && apiEditor.value?.idempotency) },
+  { id: 'render', label: '返回展示', title: '绑定卡片展示', hint: '字段映射和结果预览', done: Boolean(apiEditor.value?.cardType && apiEditor.value?.bindingRows?.length) },
+  { id: 'test', label: '测试发布', title: '用一句话验证链路', hint: '命中、参数、权限和 Trace', done: Boolean(planResult.value) },
+  { id: 'json', label: 'JSON', title: '查看完整协议', hint: '高级校验和复制', done: Boolean(editorJsonPreview.value && editorJsonPreview.value !== '{}') }
+])
+const currentStep = computed(() => registrationSteps.value.find(item => item.id === activeTab.value) || registrationSteps.value[0])
+const completionChecklist = computed(() => [
+  { label: 'API ID 与名称', done: Boolean(apiEditor.value?.id && apiEditor.value?.nameZh) },
+  { label: '意图描述与示例说法', done: Boolean(apiEditor.value?.descriptionZh && splitLines(apiEditor.value?.examplesZhText).length) },
+  { label: '请求路径与鉴权', done: Boolean(apiEditor.value?.endpoint && apiEditor.value?.authMode) },
+  { label: '参数准备规则', done: requiredParameterRows.value.length === 0 || parameterRows.value.length > 0 },
+  { label: '共享字典引用可解析', done: missingOptionSetRefs.value.length === 0 },
+  { label: '权限、风险与确认策略', done: Boolean(apiEditor.value?.risk && apiEditor.value?.idempotency) },
+  { label: '结果卡片与字段绑定', done: Boolean(apiEditor.value?.cardType && apiEditor.value?.bindingRows?.length) },
+  { label: '自然语言测试', done: Boolean(planResult.value) }
+])
+const completionDoneCount = computed(() => completionChecklist.value.filter(item => item.done).length)
+const completionRatio = computed(() => {
+  if (!completionChecklist.value.length) return 0
+  return Math.round((completionDoneCount.value / completionChecklist.value.length) * 100)
+})
 const editorJsonPreview = computed(() => {
   try {
     return JSON.stringify(buildApiPayload({ silent: true }), null, 2)
@@ -118,6 +199,45 @@ const editorJsonPreview = computed(() => {
     return '{}'
   }
 })
+
+function normalizeTab(value) {
+  if (value === 'schema') return 'prep'
+  if (value === 'request_policy') return 'policy'
+  return registrationSteps.value.some(item => item.id === value) ? value : 'basic'
+}
+
+function parameterLabel(name, config) {
+  const label = config?.label || config?.title || config?.description
+  if (!label) return name
+  return typeof label === 'string' ? label : textValue(label)
+}
+
+function parameterType(config) {
+  if (!config) return 'string'
+  if (Array.isArray(config.type)) return config.type.join(' | ')
+  return config.type || config.format || 'string'
+}
+
+function parameterSource(config) {
+  const source = config?.source || config?.sources || config?.from
+  if (Array.isArray(source)) return source.join(', ')
+  if (source) return String(source)
+  if (config?.default !== undefined) return 'default'
+  return 'user_input'
+}
+
+function parameterSourceKind(config) {
+  const source = parameterSource(config)
+  if (parameterOptionSet(config)) return 'option_set'
+  if (source.includes('context.')) return 'context'
+  if (source.includes('attachment')) return 'attachment'
+  if (source === 'default' || config?.default !== undefined) return 'default'
+  return 'user_input'
+}
+
+function parameterOptionSet(config) {
+  return config?.option_set || config?.optionSet || config?.enum_ref || config?.enumRef || ''
+}
 
 function textValue(value) {
   if (!value) return '-'
@@ -164,6 +284,230 @@ function parseJsonField(value, label, fallback = {}) {
   }
 }
 
+function defaultOptionSet(seed = {}) {
+  return {
+    id: seed.id || '',
+    name: { zh: seed.nameZh || '', en: seed.nameEn || seed.nameZh || '' },
+    host_app: 'example',
+    category: seed.category || 'enum',
+    version: '1.0.0',
+    is_active: true,
+    source: seed.source || { type: 'static' },
+    options: [],
+    metadata: {}
+  }
+}
+
+function makeOptionSetEditor(optionSet = null, seed = {}) {
+  const source = optionSet || defaultOptionSet(seed)
+  const sourceConfig = source.source || {}
+  return {
+    originalId: source.id || '',
+    id: source.id || '',
+    nameZh: localizedValue(source.name, 'zh') || textValue(source.name),
+    nameEn: localizedValue(source.name, 'en'),
+    category: source.category || 'enum',
+    hostApp: source.host_app || 'example',
+    version: source.version || '1.0.0',
+    isActive: source.is_active !== false,
+    sourceType: sourceConfig.type || (sourceConfig.api_id || sourceConfig.endpoint ? 'api' : 'static'),
+    sourceApiId: sourceConfig.api_id || '',
+    sourceEndpoint: sourceConfig.endpoint || '',
+    sourceMethod: sourceConfig.method || 'GET',
+    sourceDataPath: sourceConfig.data_path || '$.data.items',
+    sourceValuePath: sourceConfig.value_path || 'code',
+    sourceLabelPath: sourceConfig.label_path || 'name',
+    optionsText: optionItemsToText(source.options || []),
+    metadataText: formatJson(source.metadata || {})
+  }
+}
+
+function optionItemsToText(options) {
+  return (options || []).map((item) => {
+    const label = localizedValue(item.label, 'zh') || textValue(item.label) || item.value
+    const aliases = Array.isArray(item.aliases) ? item.aliases.join(',') : ''
+    return [item.value, label, aliases].filter(value => value !== '').join(' | ')
+  }).join('\n')
+}
+
+function parseOptionItemsText(value) {
+  return String(value || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [valuePart, labelPart, aliasesPart] = line.split('|').map(item => item.trim())
+      const code = valuePart || labelPart
+      return {
+        value: code,
+        label: { zh: labelPart || code, en: labelPart || code },
+        aliases: aliasesPart ? aliasesPart.split(/[,，]/).map(item => item.trim()).filter(Boolean) : [],
+        is_active: true
+      }
+    })
+}
+
+function buildOptionSetPayload() {
+  const editor = optionSetEditor.value
+  if (!editor) throw new Error('没有可保存的字典')
+  const id = editor.id.trim()
+  if (!id) throw new Error('OptionSet ID 不能为空')
+  const source = editor.sourceType === 'api'
+    ? {
+        type: 'api',
+        api_id: editor.sourceApiId.trim() || null,
+        endpoint: editor.sourceEndpoint.trim() || null,
+        method: editor.sourceMethod || 'GET',
+        data_path: editor.sourceDataPath.trim() || '$.data.items',
+        value_path: editor.sourceValuePath.trim() || 'code',
+        label_path: editor.sourceLabelPath.trim() || 'name'
+      }
+    : { type: 'static' }
+  return {
+    id,
+    name: { zh: editor.nameZh.trim() || id, en: editor.nameEn.trim() || editor.nameZh.trim() || id },
+    host_app: editor.hostApp.trim() || 'example',
+    category: editor.category.trim() || 'enum',
+    version: editor.version.trim() || '1.0.0',
+    is_active: Boolean(editor.isActive),
+    source,
+    options: parseOptionItemsText(editor.optionsText),
+    metadata: parseJsonField(editor.metadataText, '字典元数据')
+  }
+}
+
+function mutableParameterSchema() {
+  const schema = parseJsonSafely(apiEditor.value?.parametersText, { type: 'object', required: [], properties: {} })
+  return {
+    ...schema,
+    type: schema.type || 'object',
+    required: Array.isArray(schema.required) ? [...schema.required] : [],
+    properties: { ...(schema.properties || {}) }
+  }
+}
+
+function commitParameterSchema(schema) {
+  if (!apiEditor.value) return
+  apiEditor.value.parametersText = formatJson(schema)
+}
+
+function ensureParameter(name) {
+  const schema = mutableParameterSchema()
+  if (!schema.properties[name]) schema.properties[name] = { type: 'string', source: 'user_input' }
+  return schema
+}
+
+function addParameter() {
+  if (!apiEditor.value || !isEditing.value) return
+  const schema = mutableParameterSchema()
+  let index = Object.keys(schema.properties).length + 1
+  let name = `param_${index}`
+  while (schema.properties[name]) {
+    index += 1
+    name = `param_${index}`
+  }
+  schema.properties[name] = { type: 'string', title: '新参数', source: 'user_input' }
+  commitParameterSchema(schema)
+  selectedParameterName.value = name
+}
+
+function updateParameterName(oldName, nextName) {
+  if (!apiEditor.value || !isEditing.value) return
+  const name = String(nextName || '').trim()
+  if (!name || name === oldName) return
+  const schema = ensureParameter(oldName)
+  if (schema.properties[name]) {
+    toast.warning('参数名已存在', name)
+    return
+  }
+  schema.properties[name] = schema.properties[oldName]
+  delete schema.properties[oldName]
+  schema.required = schema.required.map(item => (item === oldName ? name : item))
+  commitParameterSchema(schema)
+  selectedParameterName.value = name
+}
+
+function updateParameterField(name, field, value) {
+  if (!apiEditor.value || !isEditing.value) return
+  const schema = ensureParameter(name)
+  const current = { ...(schema.properties[name] || {}) }
+  if (field === 'label') current.title = value
+  else if (field === 'type') current.type = value
+  else current[field] = value
+  schema.properties[name] = current
+  commitParameterSchema(schema)
+}
+
+function updateParameterRequired(name, checked) {
+  if (!apiEditor.value || !isEditing.value) return
+  const schema = ensureParameter(name)
+  const required = new Set(schema.required)
+  if (checked) required.add(name)
+  else required.delete(name)
+  schema.required = [...required]
+  commitParameterSchema(schema)
+}
+
+function updateParameterSourceKind(name, kind) {
+  if (!apiEditor.value || !isEditing.value) return
+  const schema = ensureParameter(name)
+  const current = { ...(schema.properties[name] || {}) }
+  delete current.option_set
+  delete current.enum_ref
+  if (kind === 'option_set') {
+    current.source = 'user_input'
+    current.option_set = current.option_set || selectedOptionSetId.value || optionSets.value[0]?.id || ''
+  } else if (kind === 'context') {
+    current.source = current.source?.startsWith?.('context.') ? current.source : `context.${name}`
+  } else if (kind === 'attachment') {
+    current.source = current.source?.startsWith?.('attachment') ? current.source : `attachment.${name}`
+  } else if (kind === 'default') {
+    current.source = 'default'
+    if (current.default === undefined) current.default = ''
+  } else {
+    current.source = 'user_input'
+  }
+  schema.properties[name] = current
+  commitParameterSchema(schema)
+}
+
+function applyOptionSetToParameter(optionSetId, parameterName = selectedParameter.value?.name) {
+  if (!apiEditor.value || !isEditing.value || !parameterName || !optionSetId) return
+  const schema = ensureParameter(parameterName)
+  schema.properties[parameterName] = {
+    ...(schema.properties[parameterName] || {}),
+    type: schema.properties[parameterName]?.type || 'string',
+    source: 'user_input',
+    option_set: optionSetId
+  }
+  commitParameterSchema(schema)
+  selectedParameterName.value = parameterName
+  selectedOptionSetId.value = optionSetId
+}
+
+function removeParameter(name) {
+  if (!apiEditor.value || !isEditing.value) return
+  const schema = mutableParameterSchema()
+  delete schema.properties[name]
+  schema.required = schema.required.filter(item => item !== name)
+  commitParameterSchema(schema)
+  if (selectedParameterName.value === name) selectedParameterName.value = parameterRows.value[0]?.name || ''
+}
+
+function selectParameter(name) {
+  selectedParameterName.value = name
+  const optionSetId = parameterRows.value.find(item => item.name === name)?.optionSet
+  if (optionSetId) selectedOptionSetId.value = optionSetId
+}
+
+function startCreateOptionSetFromParameter(param = selectedParameter.value) {
+  const baseId = apiEditor.value?.id ? `${apiEditor.value.id}.${param?.name || 'option'}` : `shared.${param?.name || 'option'}`
+  startCreateOptionSet({
+    id: baseId,
+    nameZh: `${param?.label || param?.name || '参数'}字典`
+  })
+}
+
 function saveApiEditorDraft() {
   if (restoringDraft || !apiEditor.value || !isEditing.value) return
   try {
@@ -192,7 +536,7 @@ function restoreApiEditorDraft() {
     apiEditor.value = payload.editor
     isEditing.value = true
     isCreating.value = Boolean(payload.isCreating)
-    activeTab.value = payload.activeTab || 'basic'
+    activeTab.value = normalizeTab(payload.activeTab || 'basic')
     draftSavedAt.value = payload.savedAt || ''
     toast.info('已恢复暂存草稿', '上次未保存的 API 注册内容已恢复')
     return true
@@ -646,6 +990,50 @@ function startCreateIdentity() {
   identityEditor.value = makeIdentityEditor()
 }
 
+function selectOptionSet(optionSet) {
+  if (!optionSet) return
+  selectedOptionSetId.value = optionSet.id
+  optionSetEditor.value = makeOptionSetEditor(optionSet)
+}
+
+function startCreateOptionSet(seed = {}) {
+  selectedOptionSetId.value = ''
+  optionSetEditor.value = makeOptionSetEditor(null, seed)
+}
+
+async function saveOptionSet() {
+  try {
+    optionSetSaving.value = true
+    const payload = buildOptionSetPayload()
+    const saved = await saveFastActionOptionSet(payload, Boolean(optionSetEditor.value?.originalId))
+    const index = optionSets.value.findIndex(item => item.id === saved.id)
+    if (index >= 0) optionSets.value.splice(index, 1, saved)
+    else optionSets.value.unshift(saved)
+    selectOptionSet(saved)
+    toast.success('字典已保存', saved.id)
+  } catch (error) {
+    toast.error('保存字典失败', error.userMessage || error.message || '字典配置保存失败')
+  } finally {
+    optionSetSaving.value = false
+  }
+}
+
+async function deleteOptionSet() {
+  if (!selectedOptionSet.value || !window.confirm(`确认删除 ${selectedOptionSet.value.id}？`)) return
+  try {
+    optionSetDeleting.value = true
+    await deleteFastActionOptionSet(selectedOptionSet.value.id)
+    optionSets.value = optionSets.value.filter(item => item.id !== selectedOptionSet.value.id)
+    selectedOptionSetId.value = ''
+    optionSetEditor.value = null
+    toast.success('字典已删除', '配置已移除')
+  } catch (error) {
+    toast.error('删除字典失败', error.userMessage || error.message || '字典删除失败')
+  } finally {
+    optionSetDeleting.value = false
+  }
+}
+
 async function saveIdentityConfig() {
   try {
     identitySaving.value = true
@@ -691,6 +1079,7 @@ async function loadPage(options = {}) {
       getFastActionProviderConfigs(),
       getFastActionIdentityDefinitions(),
       getFastActionKnowledgeDefinitions(),
+      getFastActionOptionSets(),
       getFastActionRuns({ limit: 30 })
     ])
 
@@ -700,7 +1089,8 @@ async function loadPage(options = {}) {
     providerConfigs.value = ensureArray(pickResult(results[3], []))
     identityDefinitions.value = ensureArray(pickResult(results[4], []))
     knowledgeDefinitions.value = ensureArray(pickResult(results[5], []))
-    runs.value = ensureArray(pickResult(results[6], []))
+    optionSets.value = ensureArray(pickResult(results[6], []))
+    runs.value = ensureArray(pickResult(results[7], []))
 
     const rejected = results.find(item => item.status === 'rejected')
     if (rejected) {
@@ -716,6 +1106,7 @@ async function loadPage(options = {}) {
       else if (!isCreating.value) apiEditor.value = null
       if (providerConfigs.value[0]) selectProviderConfig(providerConfigs.value[0])
       if (identityDefinitions.value[0]) selectIdentityConfig(identityDefinitions.value[0])
+      if (optionSets.value[0]) selectOptionSet(optionSets.value[0])
       if (!plannerProviderId.value && activeProviderConfigs.value[0]) plannerProviderId.value = activeProviderConfigs.value[0].id
     }
   } finally {
@@ -807,7 +1198,7 @@ async function runPlannerTest() {
       ...runs.value
     ].slice(0, 30)
   } catch (error) {
-    toast.error('测试失败', error.userMessage || error.message || 'Planner 测试失败')
+    toast.error('测试失败', error.userMessage || error.message || '测试发布失败')
   } finally {
     testingPlan.value = false
   }
@@ -932,7 +1323,7 @@ onMounted(async () => {
             </div>
             <h2 class="mt-1 truncate text-2xl font-semibold text-neutral-950">自然语言 API 注册工作台</h2>
           </div>
-          <div class="flex flex-col gap-2 xl:min-w-[520px]">
+          <div class="flex flex-col gap-2 xl:min-w-[480px]">
             <div class="grid grid-cols-3 gap-2">
               <div class="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5">
                 <p class="text-xs text-neutral-500">引擎</p>
@@ -962,13 +1353,13 @@ onMounted(async () => {
 
       <div v-if="loading" class="flex flex-1 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-500 shadow-sm">
         <div class="text-center">
-          <i class="fas fa-spinner fa-spin mb-2 text-2xl"></i>
+          <span class="mx-auto mb-2 block h-6 w-6 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-700"></span>
           <p class="text-sm">加载 FastAction 引擎状态中...</p>
         </div>
       </div>
 
       <template v-else>
-        <section class="grid flex-1 min-h-0 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)_380px]">
+        <section class="grid flex-1 min-h-0 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)_360px] 2xl:grid-cols-[320px_minmax(0,1fr)_380px]">
           <aside class="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
             <div class="shrink-0 border-b border-neutral-100 p-4">
               <div class="flex items-center justify-between gap-3">
@@ -1011,7 +1402,7 @@ onMounted(async () => {
                 </div>
               </button>
               <div v-if="!filteredApis.length" class="py-6 text-center text-xs text-neutral-500">
-                <i class="fas fa-inbox mb-2 text-xl text-neutral-400"></i>
+                <span class="mb-2 block text-xl text-neutral-400">□</span>
                 <p>没有匹配的 API Definition。</p>
               </div>
             </div>
@@ -1038,23 +1429,24 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <div v-if="apiEditor" class="mt-3 flex flex-wrap gap-1.5">
-                <button
-                  v-for="tabItem in [
-                    ['basic', '基础'],
-                    ['intent', '意图'],
-                    ['request', '请求'],
-                    ['schema', '参数'],
-                    ['render', '卡片绑定'],
-                    ['json', 'JSON']
-                  ]"
-                  :key="tabItem[0]"
-                  class="rounded-xl px-3 py-2 text-sm"
-                  :class="activeTab === tabItem[0] ? 'bg-neutral-950 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'"
-                  @click="activeTab = tabItem[0]"
-                >
-                  {{ tabItem[1] }}
-                </button>
+              <div v-if="apiEditor" class="mt-4 overflow-x-auto pb-1">
+                <div class="flex min-w-max gap-2">
+                  <button
+                    v-for="(step, index) in registrationSteps"
+                    :key="step.id"
+                    class="w-[122px] shrink-0 rounded-xl border px-3 py-2 text-left transition-colors"
+                    :class="activeTab === step.id ? 'border-neutral-950 bg-neutral-950 text-white' : step.done ? 'border-success/20 bg-success-50 text-success-800 hover:bg-success-100' : 'border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100'"
+                    @click="activeTab = step.id"
+                  >
+                    <span class="flex items-center gap-2">
+                      <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold" :class="activeTab === step.id ? 'bg-white text-neutral-950' : step.done ? 'bg-success text-white' : 'bg-white text-neutral-500'">
+                        {{ step.done ? '✓' : index + 1 }}
+                      </span>
+                      <span class="truncate text-sm font-semibold">{{ step.label }}</span>
+                    </span>
+                    <span class="mt-1 block truncate text-[11px]" :class="activeTab === step.id ? 'text-white/70' : 'text-neutral-500'">{{ step.hint }}</span>
+                  </button>
+                </div>
                 <span v-if="isEditing && draftSavedAt" class="inline-flex items-center rounded-full bg-info-50 px-2.5 py-1 text-xs text-info-700">
                   已暂存 {{ draftSavedLabel(draftSavedAt) }}
                 </span>
@@ -1063,7 +1455,7 @@ onMounted(async () => {
 
             <div v-if="!apiEditor" class="flex flex-1 items-center justify-center p-8 text-center text-neutral-500">
               <div>
-                <i class="fas fa-sitemap mb-2 text-2xl text-neutral-400"></i>
+                <span class="mb-2 block text-2xl text-neutral-400">◇</span>
                 <p>从左侧选择 API，或新增一个 API Definition。</p>
               </div>
             </div>
@@ -1154,46 +1546,301 @@ onMounted(async () => {
                   Timeout ms
                   <input v-model.number="apiEditor.timeoutMs" :disabled="!isEditing" type="number" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
                 </label>
-                <label class="text-sm font-medium text-neutral-700">
-                  风险等级
-                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.risk)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.risk)" @blur="hideHelp">i</button>
-                  <select v-model="apiEditor.risk" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
-                    <option v-for="item in riskOptions" :key="item" :value="item">{{ item }}</option>
-                  </select>
-                </label>
-                <label class="flex items-center gap-2 text-sm font-medium text-neutral-700">
-                  <input v-model="apiEditor.requiresConfirmation" :disabled="!isEditing" type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary">
-                  执行前需要确认
-                </label>
-                <label class="text-sm font-medium text-neutral-700">
-                  幂等性
-                  <input v-model.trim="apiEditor.idempotency" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
-                </label>
                 <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
                   鉴权配置 JSON
                   <textarea v-model="apiEditor.authText" :disabled="!isEditing" rows="5" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
                 </label>
-                <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
-                  权限标识
-                  <textarea v-model="apiEditor.permissionsText" :disabled="!isEditing" rows="3" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
-                </label>
               </section>
 
-              <section v-show="activeTab === 'schema'" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <label class="text-sm font-medium text-neutral-700">
-                  参数 Schema JSON
-                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.parameters)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.parameters)" @blur="hideHelp">i</button>
-                  <textarea v-model="apiEditor.parametersText" :disabled="!isEditing" rows="14" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
-                </label>
-                <label class="text-sm font-medium text-neutral-700">
-                  返回配置 JSON
-                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.response)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.response)" @blur="hideHelp">i</button>
-                  <textarea v-model="apiEditor.responseText" :disabled="!isEditing" rows="14" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
-                </label>
-                <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
-                  元数据 JSON
-                  <textarea v-model="apiEditor.metadataText" :disabled="!isEditing" rows="5" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
-                </label>
+              <section v-show="activeTab === 'prep'" class="space-y-4">
+                <div class="rounded-xl border border-info-200 bg-info-50 p-4">
+                  <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div>
+                      <p class="text-sm font-semibold text-info-900">调用准备就是为每个 API 参数配置取值方式</p>
+                      <p class="mt-1 text-sm leading-6 text-info-800">参数可以来自用户自然语言、共享字典、登录上下文、附件上传或默认值。共享字典可以复用，也可以声明来自企业既有列表接口。</p>
+                    </div>
+                    <button class="shrink-0 rounded-xl bg-neutral-950 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50" :disabled="!isEditing" @click="addParameter">
+                      新增参数
+                    </button>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                  <div class="rounded-xl border border-neutral-200 bg-white p-3">
+                    <p class="text-xs text-neutral-500">参数</p>
+                    <p class="mt-1 text-2xl font-semibold text-neutral-950">{{ parameterRows.length }}</p>
+                  </div>
+                  <div class="rounded-xl border border-neutral-200 bg-white p-3">
+                    <p class="text-xs text-neutral-500">必填</p>
+                    <p class="mt-1 text-2xl font-semibold text-neutral-950">{{ requiredParameterRows.length }}</p>
+                  </div>
+                  <div class="rounded-xl border border-neutral-200 bg-white p-3">
+                    <p class="text-xs text-neutral-500">共享字典引用</p>
+                    <p class="mt-1 text-2xl font-semibold text-neutral-950">{{ optionSetRefs.length }}</p>
+                  </div>
+                  <div class="rounded-xl border bg-white p-3" :class="missingOptionSetRefs.length ? 'border-warning/30' : 'border-neutral-200'">
+                    <p class="text-xs text-neutral-500">缺失字典</p>
+                    <p class="mt-1 text-2xl font-semibold" :class="missingOptionSetRefs.length ? 'text-warning-700' : 'text-neutral-950'">{{ missingOptionSetRefs.length }}</p>
+                  </div>
+                </div>
+
+                <div v-if="missingOptionSetRefs.length" class="rounded-xl border border-warning/30 bg-warning-50 px-4 py-3 text-sm text-warning-800">
+                  以下参数引用的共享字典不存在：<span class="font-mono">{{ missingOptionSetRefs.join(', ') }}</span>
+                </div>
+
+                <div class="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
+                  <div class="min-w-0 rounded-xl border border-neutral-200 bg-white">
+                    <div class="flex items-center justify-between gap-3 border-b border-neutral-100 px-3 py-2">
+                      <div>
+                        <p class="text-sm font-semibold text-neutral-900">参数取值矩阵</p>
+                        <p class="mt-0.5 text-xs text-neutral-500">接入者只需要逐个确认参数怎么来；底层协议会自动写回 JSON Schema。</p>
+                      </div>
+                      <span class="rounded-full bg-neutral-100 px-2 py-1 text-xs text-neutral-600">{{ contextRefs.length }} 个上下文来源</span>
+                    </div>
+                    <div v-if="parameterRows.length" class="overflow-x-auto">
+                      <div class="min-w-[960px] divide-y divide-neutral-100">
+                        <div
+                          v-for="param in parameterRows"
+                          :key="param.name"
+                          class="grid grid-cols-[minmax(150px,1.1fr)_minmax(150px,1.1fr)_112px_132px_minmax(240px,1.5fr)_96px] gap-2 px-3 py-3 text-sm"
+                          :class="selectedParameterName === param.name ? 'bg-primary/5' : ''"
+                          @click="selectParameter(param.name)"
+                        >
+                          <label class="min-w-0 text-xs font-medium text-neutral-500">
+                            <span class="whitespace-nowrap">参数名</span>
+                            <input :value="param.name" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 font-mono text-xs text-neutral-900 outline-none focus:border-primary disabled:bg-neutral-50" @change="updateParameterName(param.name, $event.target.value)">
+                          </label>
+                          <label class="min-w-0 text-xs font-medium text-neutral-500">
+                            <span class="whitespace-nowrap">业务含义</span>
+                            <input :value="param.label" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-xs text-neutral-900 outline-none focus:border-primary disabled:bg-neutral-50" @input="updateParameterField(param.name, 'label', $event.target.value)">
+                          </label>
+                          <label class="min-w-0 text-xs font-medium text-neutral-500">
+                            <span class="whitespace-nowrap">类型</span>
+                            <select :value="param.type" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-xs outline-none focus:border-primary disabled:bg-neutral-50" @change="updateParameterField(param.name, 'type', $event.target.value)">
+                              <option v-for="item in parameterTypeOptions" :key="item" :value="item">{{ item }}</option>
+                            </select>
+                          </label>
+                          <label class="min-w-0 text-xs font-medium text-neutral-500">
+                            <span class="whitespace-nowrap">取值来源</span>
+                            <select :value="param.sourceKind" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-xs outline-none focus:border-primary disabled:bg-neutral-50" @change="updateParameterSourceKind(param.name, $event.target.value)">
+                              <option v-for="item in parameterSourceOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                            </select>
+                          </label>
+                          <label class="min-w-0 text-xs font-medium text-neutral-500">
+                            <span class="whitespace-nowrap">字典 / 来源表达式</span>
+                            <select v-if="param.sourceKind === 'option_set'" :value="param.optionSet" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 font-mono text-xs outline-none focus:border-primary disabled:bg-neutral-50" @change="applyOptionSetToParameter($event.target.value, param.name)">
+                              <option value="">选择共享字典</option>
+                              <option v-for="optionSet in optionSets" :key="optionSet.id" :value="optionSet.id">{{ optionSet.id }}</option>
+                            </select>
+                            <input v-else :value="param.source" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 font-mono text-xs outline-none focus:border-primary disabled:bg-neutral-50" @input="updateParameterField(param.name, 'source', $event.target.value)">
+                          </label>
+                          <div class="flex items-end justify-end gap-2">
+                            <label class="flex h-9 items-center gap-1 whitespace-nowrap rounded-lg border border-neutral-200 px-2 text-xs text-neutral-600">
+                              <input :checked="param.required" :disabled="!isEditing" type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary" @change="updateParameterRequired(param.name, $event.target.checked)">
+                              必填
+                            </label>
+                            <button class="h-9 rounded-lg border border-danger-200 px-2 text-xs text-danger-700 hover:bg-danger-50 disabled:opacity-50" :disabled="!isEditing" @click.stop="removeParameter(param.name)">删</button>
+                          </div>
+                          <div class="col-span-6 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                            <span class="max-w-full truncate rounded-md bg-neutral-100 px-2 py-1 font-mono">{{ param.source }}</span>
+                            <button class="whitespace-nowrap rounded-md border border-neutral-200 px-2 py-1 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50" :disabled="!isEditing" @click.stop="startCreateOptionSetFromParameter(param)">从此参数生成共享字典</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <p v-else class="p-4 text-sm text-neutral-500">暂无参数。无参查询 API 可以保持为空；需要用户补充或上下文校准的 API 可点击“新增参数”。</p>
+                  </div>
+
+                  <aside class="rounded-xl border border-neutral-200 bg-white p-3 xl:max-h-[calc(100vh-260px)] xl:overflow-y-auto">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <p class="text-sm font-semibold text-neutral-900">共享字典库</p>
+                        <p class="mt-0.5 text-xs text-neutral-500">{{ optionSets.length }} 个 OptionSet，可跨 API 复用。</p>
+                      </div>
+                      <button class="rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs hover:bg-neutral-50" @click="startCreateOptionSet()">新增</button>
+                    </div>
+                    <div class="mt-3 max-h-[220px] space-y-2 overflow-y-auto pr-1">
+                      <article
+                        v-for="optionSet in optionSets"
+                        :key="optionSet.id"
+                        role="button"
+                        tabindex="0"
+                        class="w-full cursor-pointer rounded-lg border px-3 py-2 text-left transition-colors"
+                        :class="selectedOptionSetId === optionSet.id ? 'border-primary bg-primary/5' : 'border-neutral-100 hover:bg-neutral-50'"
+                        @click="selectOptionSet(optionSet)"
+                        @keydown.enter.prevent="selectOptionSet(optionSet)"
+                        @keydown.space.prevent="selectOptionSet(optionSet)"
+                      >
+                        <div class="flex items-start justify-between gap-2">
+                          <div class="min-w-0">
+                            <p class="truncate text-sm font-medium text-neutral-900">{{ textValue(optionSet.name) }}</p>
+                            <p class="mt-1 truncate font-mono text-xs text-neutral-500">{{ optionSet.id }}</p>
+                          </div>
+                          <span class="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-600">{{ optionSetUsageMap[optionSet.id] || 0 }} API</span>
+                        </div>
+                        <div class="mt-2 flex items-center justify-between gap-2 text-xs text-neutral-500">
+                          <span>{{ optionSet.options?.length || 0 }} 项 · {{ optionSet.source?.type || 'static' }}</span>
+                          <button class="rounded-md border border-neutral-200 px-2 py-1 text-neutral-700 hover:bg-white disabled:opacity-40" :disabled="!isEditing || !selectedParameter" @click.stop="applyOptionSetToParameter(optionSet.id)">
+                            绑定到参数
+                          </button>
+                        </div>
+                      </article>
+                      <p v-if="!optionSets.length" class="rounded-lg border border-dashed border-neutral-200 p-3 text-sm text-neutral-500">暂无共享字典。可以从参数生成，也可以手动新增。</p>
+                    </div>
+                    <div v-if="optionSetEditor" class="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="min-w-0">
+                          <p class="truncate text-sm font-semibold text-neutral-950">选中字典详情</p>
+                          <p class="mt-0.5 truncate font-mono text-xs text-neutral-500">{{ optionSetEditor.id || 'new option set' }}</p>
+                        </div>
+                        <div class="flex shrink-0 gap-1.5">
+                          <button class="rounded-lg bg-neutral-950 px-2.5 py-1.5 text-xs text-white disabled:opacity-50" :disabled="optionSetSaving" @click="saveOptionSet">{{ optionSetSaving ? '保存中' : '保存' }}</button>
+                          <button class="rounded-lg border border-danger-200 px-2.5 py-1.5 text-xs text-danger-700 disabled:opacity-50" :disabled="!selectedOptionSet || optionSetDeleting" @click="deleteOptionSet">删</button>
+                        </div>
+                      </div>
+                      <div class="mt-3 space-y-2">
+                        <label class="block text-xs font-medium text-neutral-600">
+                          名称
+                          <input v-model.trim="optionSetEditor.nameZh" class="mt-1 w-full rounded-lg border border-neutral-200 bg-white px-2 py-2 text-xs outline-none focus:border-primary">
+                        </label>
+                        <label class="block text-xs font-medium text-neutral-600">
+                          来源
+                          <select v-model="optionSetEditor.sourceType" class="mt-1 w-full rounded-lg border border-neutral-200 bg-white px-2 py-2 text-xs outline-none focus:border-primary">
+                            <option value="static">静态值</option>
+                            <option value="api">来自列表 API</option>
+                          </select>
+                        </label>
+                        <label v-if="optionSetEditor.sourceType === 'api'" class="block text-xs font-medium text-neutral-600">
+                          来源 API / Endpoint
+                          <input v-model.trim="optionSetEditor.sourceApiId" class="mt-1 w-full rounded-lg border border-neutral-200 bg-white px-2 py-2 font-mono text-xs outline-none focus:border-primary" placeholder="source api id">
+                          <input v-model.trim="optionSetEditor.sourceEndpoint" class="mt-2 w-full rounded-lg border border-neutral-200 bg-white px-2 py-2 font-mono text-xs outline-none focus:border-primary" placeholder="/api/v1/options">
+                        </label>
+                        <label class="block text-xs font-medium text-neutral-600">
+                          静态选项
+                          <textarea v-model="optionSetEditor.optionsText" rows="4" class="mt-1 w-full rounded-lg border border-neutral-200 bg-white px-2 py-2 font-mono text-xs outline-none focus:border-primary" placeholder="code | 中文名 | 别名1,别名2"></textarea>
+                        </label>
+                        <p class="rounded-lg bg-white/80 px-2 py-1.5 text-xs text-neutral-500">{{ selectedOptionSetUsageApis.length }} 条 API 引用</p>
+                      </div>
+                    </div>
+                  </aside>
+                </div>
+
+                <details v-if="optionSetEditor" class="rounded-xl border border-neutral-200 bg-white">
+                  <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-neutral-900">完整字典高级编辑</summary>
+                  <div class="flex items-center justify-between gap-3 border-t border-neutral-100 px-4 py-3">
+                    <div>
+                      <p class="text-sm font-semibold text-neutral-900">共享字典详情</p>
+                      <p class="mt-0.5 text-xs text-neutral-500">维护 code/name/alias 映射，或声明从企业列表 API 拉取选项。</p>
+                    </div>
+                    <div class="flex gap-2">
+                      <button class="rounded-lg border border-neutral-200 px-3 py-2 text-xs hover:bg-neutral-50 disabled:opacity-50" :disabled="optionSetSaving" @click="saveOptionSet">{{ optionSetSaving ? '保存中...' : '保存字典' }}</button>
+                      <button class="rounded-lg border border-danger-200 px-3 py-2 text-xs text-danger-700 hover:bg-danger-50 disabled:opacity-50" :disabled="!selectedOptionSet || optionSetDeleting" @click="deleteOptionSet">删除</button>
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-1 gap-4 p-4 xl:grid-cols-2">
+                    <label class="text-sm font-medium text-neutral-700">
+                      OptionSet ID
+                      <input v-model.trim="optionSetEditor.id" :disabled="Boolean(optionSetEditor.originalId)" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-sm outline-none focus:border-primary disabled:bg-neutral-50">
+                    </label>
+                    <label class="text-sm font-medium text-neutral-700">
+                      名称
+                      <input v-model.trim="optionSetEditor.nameZh" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary">
+                    </label>
+                    <label class="text-sm font-medium text-neutral-700">
+                      分类
+                      <input v-model.trim="optionSetEditor.category" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary">
+                    </label>
+                    <label class="text-sm font-medium text-neutral-700">
+                      来源
+                      <select v-model="optionSetEditor.sourceType" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary">
+                        <option value="static">静态值</option>
+                        <option value="api">来自列表 API</option>
+                      </select>
+                    </label>
+                    <div v-if="optionSetEditor.sourceType === 'api'" class="grid grid-cols-1 gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 xl:col-span-2 xl:grid-cols-3">
+                      <label class="text-xs font-medium text-neutral-600">
+                        来源 API ID
+                        <input v-model.trim="optionSetEditor.sourceApiId" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 font-mono text-xs outline-none focus:border-primary" placeholder="例如 dictionaries.list">
+                      </label>
+                      <label class="text-xs font-medium text-neutral-600">
+                        Endpoint
+                        <input v-model.trim="optionSetEditor.sourceEndpoint" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 font-mono text-xs outline-none focus:border-primary" placeholder="/api/v1/options">
+                      </label>
+                      <label class="text-xs font-medium text-neutral-600">
+                        Method
+                        <select v-model="optionSetEditor.sourceMethod" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-xs outline-none focus:border-primary">
+                          <option v-for="item in methodOptions" :key="item" :value="item">{{ item }}</option>
+                        </select>
+                      </label>
+                      <label class="text-xs font-medium text-neutral-600">
+                        列表路径
+                        <input v-model.trim="optionSetEditor.sourceDataPath" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 font-mono text-xs outline-none focus:border-primary">
+                      </label>
+                      <label class="text-xs font-medium text-neutral-600">
+                        code 字段
+                        <input v-model.trim="optionSetEditor.sourceValuePath" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 font-mono text-xs outline-none focus:border-primary">
+                      </label>
+                      <label class="text-xs font-medium text-neutral-600">
+                        name 字段
+                        <input v-model.trim="optionSetEditor.sourceLabelPath" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 font-mono text-xs outline-none focus:border-primary">
+                      </label>
+                    </div>
+                    <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
+                      静态选项
+                      <textarea v-model="optionSetEditor.optionsText" rows="5" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary" placeholder="code | 中文名 | 别名1,别名2"></textarea>
+                    </label>
+                    <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
+                      元数据 JSON
+                      <textarea v-model="optionSetEditor.metadataText" rows="4" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary"></textarea>
+                    </label>
+                    <div class="rounded-xl border border-neutral-100 bg-neutral-50 p-3 text-xs text-neutral-600 xl:col-span-2">
+                      <p class="font-semibold text-neutral-800">复用情况</p>
+                      <p class="mt-1">{{ selectedOptionSetUsageApis.length }} 条 API 正在引用：{{ selectedOptionSetUsageApis.map(item => item.id).join(', ') || '暂无' }}</p>
+                    </div>
+                  </div>
+                </details>
+
+                <details class="rounded-xl border border-neutral-200 bg-white">
+                  <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-neutral-900">高级 JSON 配置</summary>
+                  <div class="grid grid-cols-1 gap-4 border-t border-neutral-100 p-4 xl:grid-cols-2">
+                    <label class="text-sm font-medium text-neutral-700">
+                      参数 Schema JSON
+                      <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.parameters)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.parameters)" @blur="hideHelp">i</button>
+                      <textarea v-model="apiEditor.parametersText" :disabled="!isEditing" rows="12" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
+                    </label>
+                    <label class="text-sm font-medium text-neutral-700">
+                      元数据 JSON
+                      <textarea v-model="apiEditor.metadataText" :disabled="!isEditing" rows="12" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
+                    </label>
+                  </div>
+                </details>
+              </section>
+
+              <section v-show="activeTab === 'policy'" class="space-y-4">
+                <div class="rounded-xl border border-warning/20 bg-warning-50 p-4">
+                  <p class="text-sm font-semibold text-warning-900">权限确认决定 AI 能不能执行，而不是只决定页面能不能点</p>
+                  <p class="mt-1 text-sm leading-6 text-warning-800">读接口可以直接回答；写接口和高风险接口应该进入确认卡片，由宿主应用执行最终鉴权和提交。</p>
+                </div>
+                <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <label class="text-sm font-medium text-neutral-700">
+                    风险等级
+                    <select v-model="apiEditor.risk" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
+                      <option v-for="item in riskOptions" :key="item" :value="item">{{ item }}</option>
+                    </select>
+                  </label>
+                  <label class="text-sm font-medium text-neutral-700">
+                    幂等性
+                    <input v-model.trim="apiEditor.idempotency" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
+                  </label>
+                  <label class="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-3 text-sm font-medium text-neutral-700 xl:col-span-2">
+                    <input v-model="apiEditor.requiresConfirmation" :disabled="!isEditing" type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary">
+                    执行前需要确认
+                  </label>
+                  <label class="text-sm font-medium text-neutral-700 xl:col-span-2">
+                    权限标识
+                    <textarea v-model="apiEditor.permissionsText" :disabled="!isEditing" rows="4" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
+                  </label>
+                </div>
               </section>
 
               <section v-show="activeTab === 'render'" class="space-y-4">
@@ -1226,6 +1873,54 @@ onMounted(async () => {
                     <p v-if="!apiEditor.bindingRows.length" class="p-4 text-center text-sm text-neutral-500">暂无字段绑定。</p>
                   </div>
                 </div>
+                <label class="block text-sm font-medium text-neutral-700">
+                  返回配置 JSON
+                  <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.response)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.response)" @blur="hideHelp">i</button>
+                  <textarea v-model="apiEditor.responseText" :disabled="!isEditing" rows="6" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50"></textarea>
+                </label>
+              </section>
+
+              <section v-show="activeTab === 'test'" class="space-y-4">
+                <div class="rounded-xl border border-success/20 bg-success-50 p-4">
+                  <p class="text-sm font-semibold text-success-900">最后用一句真实用户语言验证这条能力</p>
+                  <p class="mt-1 text-sm leading-6 text-success-800">这里会暴露命中 API、抽取参数、权限判断和模型选择，帮助接入者在发布前发现问题。</p>
+                </div>
+                <div class="grid grid-cols-1 gap-3 xl:grid-cols-3">
+                  <label class="text-xs font-medium text-neutral-600">
+                    模式
+                    <select v-model="plannerMode" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10">
+                      <option value="deterministic">deterministic</option>
+                      <option value="hybrid">hybrid</option>
+                      <option value="llm">llm</option>
+                    </select>
+                  </label>
+                  <label class="text-xs font-medium text-neutral-600">
+                    身份
+                    <select v-model="plannerIdentityId" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10">
+                      <option value="">不指定</option>
+                      <option v-for="identity in identityDefinitions" :key="identity.id" :value="identity.id">{{ identity.id }}</option>
+                    </select>
+                  </label>
+                  <label class="text-xs font-medium text-neutral-600">
+                    Provider
+                    <select v-model="plannerProviderId" :disabled="plannerMode === 'deterministic'" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
+                      <option value="">自动选择</option>
+                      <option v-for="provider in activeProviderConfigs" :key="provider.id" :value="provider.id">{{ provider.id }}</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="flex gap-2">
+                  <input v-model="planText" class="min-w-0 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" placeholder="输入一句自然语言">
+                  <button class="rounded-lg bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-60" :disabled="testingPlan" @click="runPlannerTest">{{ testingPlan ? '测试中...' : '测试' }}</button>
+                </div>
+                <div v-if="planResult" class="rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs">
+                  <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <p><span class="text-neutral-500">Action：</span><span class="font-mono text-neutral-900">{{ planResult.action }}</span></p>
+                    <p><span class="text-neutral-500">API：</span><span class="font-mono text-neutral-900">{{ planResult.api?.id || '-' }}</span></p>
+                    <p><span class="text-neutral-500">Confidence：</span><span class="font-mono text-neutral-900">{{ planResult.confidence ?? '-' }}</span></p>
+                  </div>
+                  <pre class="mt-3 max-h-64 overflow-auto rounded-lg bg-white p-3 text-neutral-800">{{ JSON.stringify(planResult.params || {}, null, 2) }}</pre>
+                </div>
               </section>
 
               <section v-show="activeTab === 'json'" class="space-y-3">
@@ -1236,6 +1931,30 @@ onMounted(async () => {
           </main>
 
           <aside class="min-h-0 space-y-4 overflow-y-auto pr-1">
+            <section class="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-base font-semibold text-neutral-950">接入完成度</h3>
+                  <p class="mt-0.5 text-sm text-neutral-500">{{ currentStep?.title || '选择步骤' }}</p>
+                </div>
+                <span class="rounded-full bg-neutral-950 px-2.5 py-1 text-sm font-semibold text-white">{{ completionRatio }}%</span>
+              </div>
+              <div class="mt-3 h-2 rounded-full bg-neutral-100">
+                <div class="h-full rounded-full bg-neutral-950 transition-all" :style="{ width: `${completionRatio}%` }"></div>
+              </div>
+              <div class="mt-3 space-y-2">
+                <button
+                  v-for="item in completionChecklist"
+                  :key="item.label"
+                  class="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-sm"
+                  :class="item.done ? 'bg-success-50 text-success-800' : 'bg-neutral-50 text-neutral-600'"
+                >
+                  <span class="min-w-0 truncate">{{ item.label }}</span>
+                  <span class="shrink-0 text-xs font-semibold">{{ item.done ? 'done' : 'todo' }}</span>
+                </button>
+              </div>
+            </section>
+
             <section class="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
               <div class="flex items-center justify-between gap-3">
                 <div>
@@ -1320,43 +2039,6 @@ onMounted(async () => {
                   <p class="mt-1 font-mono text-xs text-neutral-500">{{ card.card_type }}</p>
                 </button>
                 <p v-if="!cardDefinitions.length" class="text-sm text-neutral-500">暂无卡片协议。</p>
-              </div>
-            </section>
-
-            <section class="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-              <h3 class="text-base font-semibold text-neutral-950">Planner 测试</h3>
-              <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-                <label class="text-xs font-medium text-neutral-600">
-                  模式
-                  <select v-model="plannerMode" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10">
-                    <option value="deterministic">deterministic</option>
-                    <option value="hybrid">hybrid</option>
-                    <option value="llm">llm</option>
-                  </select>
-                </label>
-                <label class="text-xs font-medium text-neutral-600">
-                  身份
-                  <select v-model="plannerIdentityId" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10">
-                    <option value="">不指定</option>
-                    <option v-for="identity in identityDefinitions" :key="identity.id" :value="identity.id">{{ identity.id }}</option>
-                  </select>
-                </label>
-                <label class="text-xs font-medium text-neutral-600">
-                  Provider
-                  <select v-model="plannerProviderId" :disabled="plannerMode === 'deterministic'" class="mt-1 w-full rounded-lg border border-neutral-200 px-2 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
-                    <option value="">自动选择</option>
-                    <option v-for="provider in activeProviderConfigs" :key="provider.id" :value="provider.id">{{ provider.id }}</option>
-                  </select>
-                </label>
-              </div>
-              <div class="mt-3 flex gap-2">
-                <input v-model="planText" class="min-w-0 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" placeholder="输入一句自然语言">
-                <button class="rounded-lg bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-60" :disabled="testingPlan" @click="runPlannerTest">测试</button>
-              </div>
-              <div v-if="planResult" class="mt-3 rounded-lg bg-neutral-50 p-3 text-xs">
-                <p><span class="text-neutral-500">Action：</span><span class="font-mono text-neutral-900">{{ planResult.action }}</span></p>
-                <p class="mt-1"><span class="text-neutral-500">API：</span><span class="font-mono text-neutral-900">{{ planResult.api?.id || '-' }}</span></p>
-                <pre class="mt-2 max-h-48 overflow-auto rounded-lg bg-white p-2 text-neutral-800">{{ JSON.stringify(planResult.params || {}, null, 2) }}</pre>
               </div>
             </section>
 

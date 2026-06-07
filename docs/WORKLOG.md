@@ -380,3 +380,104 @@ Boundary:
 边界：
   产品专属首页卡片只作为 host adapter 示例，不进入 FastAction 核心卡片。
 ```
+
+## 2026-06-07 API Registry Wizard UX / API 注册向导体验
+
+```text
+Goal:
+  Reduce integration burden for enterprise engineers who understand their own
+  APIs but should not need to learn every FastAction registry before registering
+  a capability.
+
+Implemented:
+  - Changed the API Registry page from compact tabs into an 8-step integration
+    wizard:
+      Basic, Intent, Request, Preparation, Policy, Result, Test, JSON.
+  - Added a Preparation step that surfaces required parameters, option-set
+    references, context sources, and resolver hints before editing JSON.
+  - Moved permission, risk, confirmation, and idempotency into a dedicated
+    Policy step instead of mixing them into the request form.
+  - Moved planner validation into the Test step so it becomes part of the
+    registration flow.
+  - Changed the right column into an API Inspector with completion checklist,
+    card preview, sample response, card choices, and recent runs.
+
+Boundary:
+  The wizard stays generic. It explains capability registration using neutral
+  API, parameter, option, context, attachment, and card concepts.
+```
+
+```text
+目标：
+  降低企业工程师接入负担。他们了解自己的 API，但不应该先理解
+  FastAction 每个 Registry 才能注册能力。
+
+已实现：
+  - API Registry 从紧凑 Tab 调整为 8 步接入向导：
+    基础、意图、请求、调用准备、权限确认、返回展示、测试发布、JSON。
+  - 新增调用准备步骤，在编辑 JSON 前先展示必填参数、字典引用、
+    上下文来源和实体校准提示。
+  - 权限、风险、确认和幂等性独立到权限确认步骤，不再混在请求表单里。
+  - Planner 验证进入测试发布步骤，成为注册闭环的一部分。
+  - 右侧调整为 API Inspector，展示完成度 Checklist、卡片预览、
+    示例响应、卡片选择和最近 Runs。
+
+边界：
+  向导保持通用，只使用 API、参数、字典、上下文、附件和卡片等
+  中性概念说明能力注册。
+```
+
+## 2026-06-07 Preparation UX and Reusable OptionSets / 调用准备与可复用字典体验
+
+```text
+Goal:
+  Treat dictionaries and preparation rules as parameter value-source
+  configuration instead of making enterprise integrators edit abstract JSON
+  first.
+
+Implemented:
+  - Added OptionSet API loading, saving, and deleting to the open-source
+    Workbench.
+  - Reworked the Preparation step into a parameter matrix:
+      parameter name
+      business label
+      type
+      source kind
+      option-set binding or source expression
+      required flag
+  - Added a shared option-set library with reuse count and one-click binding to
+    the selected parameter.
+  - Added an OptionSet detail editor:
+      static values: code | name | aliases
+      API source: source API ID, endpoint, method, list path, code field, name field
+  - Added missing option-set reference warnings and completion-checklist coverage.
+
+Boundary:
+  OptionSet remains a generic FastAction resource. Host-specific values are
+  registration data supplied by the host application or host adapter.
+```
+
+```text
+目标：
+  把字典和调用准备规则视为“参数取值来源配置”，避免企业接入者
+  一上来就编辑抽象 JSON。
+
+已实现：
+  - 开源 Workbench 补齐 OptionSet 加载、保存和删除。
+  - 调用准备步骤改为参数矩阵：
+      参数名
+      业务含义
+      类型
+      取值来源
+      字典绑定或来源表达式
+      必填状态
+  - 新增共享字典库，显示复用次数，并支持一键绑定到当前参数。
+  - 新增 OptionSet 详情编辑：
+      静态值：code | 名称 | 别名
+      API 来源：来源 API ID、endpoint、method、列表路径、code 字段、name 字段
+  - 新增缺失字典引用提示，并纳入完成度检查。
+
+边界：
+  OptionSet 仍是通用 FastAction 资源。宿主业务的具体字典值由
+  宿主应用或宿主适配器注册进来。
+```

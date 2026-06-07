@@ -33,6 +33,12 @@ export const getFastActionIdentityDefinitions = () => request('/identity-definit
 export const saveFastActionIdentityDefinition = (payload) => jsonRequest('/identity-definitions', 'POST', payload)
 export const deleteFastActionIdentityDefinition = (id) => request(`/identity-definitions/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const getFastActionKnowledgeDefinitions = () => request('/knowledge-definitions')
+export const getFastActionOptionSets = () => request('/option-sets')
+export const saveFastActionOptionSet = (payload, isUpdate = false) => {
+  const id = String(payload?.id || '').trim()
+  return jsonRequest(isUpdate ? `/option-sets/${encodeURIComponent(id)}` : '/option-sets', isUpdate ? 'PUT' : 'POST', payload)
+}
+export const deleteFastActionOptionSet = (id) => request(`/option-sets/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const getFastActionRuns = () => request('/runs')
 export const planFastActionChat = (payload) => jsonRequest('/chat', 'POST', payload)
 export const getFastActionTestMessages = (sessionId) => request(`/test-messages${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`)

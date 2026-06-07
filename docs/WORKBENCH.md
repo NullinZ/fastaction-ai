@@ -100,6 +100,10 @@ flowchart LR
 
 ## 3. API Registry Page / API 注册页
 
+The API Registry page is an integration wizard, not a raw configuration table. Its primary user is an enterprise engineer who understands existing APIs but does not yet know the FastAction framework.
+
+API 注册页是接入向导，不是裸配置表。它的主要用户是了解企业既有 API、但还不了解 FastAction 框架的接入工程师。
+
 Functional blocks:
 
 ```text
@@ -109,11 +113,21 @@ Top summary:
 Left list:
   Search by API ID, name, path, card type, operation type, and keyword.
 
-Center detail:
-  Tabs for basic info, intent, request, parameters, policy, card binding, and JSON.
+Center wizard:
+  Step 1 Basic: name the capability.
+  Step 2 Intent: describe when users will ask for it.
+  Step 3 Request: connect method, endpoint, auth, timeout, and retry behavior.
+  Step 4 Preparation: configure each API parameter's value source. Sources can
+    be user input, reusable option sets, runtime context, attachment upload
+    results, or defaults.
+  Step 5 Policy: define permission markers, risk level, confirmation, and idempotency.
+  Step 6 Result: choose card type, bind response fields, and preview the card.
+  Step 7 Test: run one natural-language sentence before publishing.
+  Step 8 JSON: inspect the complete protocol payload.
 
-Right preview:
-  Card preview, sample API response, field-binding result, and selected capability summary.
+Right inspector:
+  Registration completeness checklist, current-step summary, card preview,
+  sample API response, available card contracts, and recent runs.
 ```
 
 功能块：
@@ -125,11 +139,61 @@ Right preview:
 左侧列表：
   支持按 API ID、名称、路径、卡片类型、操作类型和关键词搜索。
 
-中间详情：
-  基础信息、意图、请求、参数、策略、卡片绑定和 JSON 结构。
+中间向导：
+  Step 1 基础：命名能力。
+  Step 2 意图：说明用户什么时候会问到它。
+  Step 3 请求：连接 method、endpoint、鉴权、超时和重试。
+  Step 4 调用准备：逐个配置 API 参数的取值方式。参数可以来自
+    用户补充、可复用字典、运行上下文、附件上传结果或默认值。
+  Step 5 权限确认：定义权限标识、风险等级、确认策略和幂等性。
+  Step 6 返回展示：选择卡片、绑定返回字段并预览。
+  Step 7 测试发布：用一句自然语言完成发布前验证。
+  Step 8 JSON：检查完整协议结构。
 
-右侧预览：
-  卡片预览、示例 API 响应、字段绑定结果和当前能力摘要。
+右侧 Inspector：
+  注册完成度 Checklist、当前步骤摘要、卡片预览、示例响应、
+  可选卡片协议和最近 Runs。
+```
+
+Preparation UX / 调用准备体验：
+
+```text
+Parameter matrix:
+  - Shows parameter name, business label, type, source kind, option-set binding,
+    raw source expression, required flag, and delete action.
+  - Every control writes back to APIDefinition.parameters JSON Schema.
+
+Shared option-set library:
+  - OptionSet is a reusable parameter value source, not a separate business module.
+  - One option set can be referenced by many API parameters.
+  - Usage count shows how many registered APIs currently reference it.
+  - Missing option-set references are surfaced in the completion checklist.
+
+Option-set detail:
+  - Static mode maintains code | name | aliases rows.
+  - API mode records source API ID, endpoint, method, list path, code field,
+    and name field so host adapters can sync dictionary options from existing
+    enterprise APIs.
+  - Metadata JSON remains available for advanced host-specific hints.
+```
+
+```text
+参数矩阵：
+  - 展示参数名、业务含义、类型、取值来源、字典绑定、原始来源表达式、
+    是否必填和删除动作。
+  - 每个控件都会回写到 APIDefinition.parameters JSON Schema。
+
+共享字典库：
+  - OptionSet 是可复用的参数取值来源，不是独立的业务模块。
+  - 一个字典可以被多个 API 参数引用。
+  - 复用次数显示当前有多少 API 正在引用。
+  - 引用了不存在的字典时，会进入完成度检查和调用准备警告。
+
+字典详情：
+  - 静态模式维护 code | 名称 | 别名。
+  - API 来源模式记录来源 API ID、endpoint、method、列表路径、
+    code 字段和 name 字段，方便宿主适配器从企业既有列表接口同步选项。
+  - 元数据 JSON 保留给高级宿主提示。
 ```
 
 ## 4. Test Bench / 测试台
@@ -485,23 +549,30 @@ Do not persist:
 ## 11. UI Principles / UI 原则
 
 ```text
-1. Keep registration dense and scannable.
-2. Prefer local scrolling inside panels over long full-page scrolling.
-3. Keep settings collapsible by default.
-4. Use fixed phone-width previews in the test bench.
-5. Show debug metadata in a wider trace panel.
-6. Keep large JSON blocks collapsible.
-7. Never hide permission denial behind a generic fallback.
-8. Make field binding and card preview visible before saving.
+1. Start from the enterprise user's integration job, not from internal registries.
+2. Make API registration a guided flow: define, match, connect, prepare, govern,
+   render, test, then inspect JSON.
+3. Keep registration dense and scannable.
+4. Prefer local scrolling inside panels over long full-page scrolling.
+5. Keep settings and resource registries separate from the API wizard unless the
+   current API references them.
+6. Use fixed phone-width previews in the test bench.
+7. Show debug metadata in a wider trace panel.
+8. Keep large JSON blocks collapsible.
+9. Never hide permission denial behind a generic fallback.
+10. Make field binding, card preview, and test outcome visible before saving.
 ```
 
 ```text
-1. 注册页要紧凑、可扫读。
-2. 优先使用面板内局部滚动，减少整页滚动。
-3. 系统设置默认折叠。
-4. 测试台手机预览保持固定手机宽度。
-5. 调试 Trace 面板要足够宽。
-6. 大块 JSON 默认可折叠。
-7. 权限拒绝不能被泛化兜底掩盖。
-8. 保存前应能看到字段绑定和卡片预览。
+1. 从企业用户的 API 接入任务出发，而不是从引擎内部 Registry 出发。
+2. API 注册应是向导流程：定义、匹配、连接、准备、治理、展示、测试、
+   再检查 JSON。
+3. 注册页要紧凑、可扫读。
+4. 优先使用面板内局部滚动，减少整页滚动。
+5. 系统设置和资源 Registry 应与 API 向导分开，除非当前 API 正在引用它们。
+6. 测试台手机预览保持固定手机宽度。
+7. 调试 Trace 面板要足够宽。
+8. 大块 JSON 默认可折叠。
+9. 权限拒绝不能被泛化兜底掩盖。
+10. 保存前应能看到字段绑定、卡片预览和测试结果。
 ```

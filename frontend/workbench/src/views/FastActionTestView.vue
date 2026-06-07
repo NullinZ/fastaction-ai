@@ -27,7 +27,7 @@ const USER_PHONE_WIDTH = 360
 const DEBUG_TRACE_WIDTH = 520
 const PHONE_HEIGHT = 782
 const PHONE_GAP = 12
-const MIN_PHONE_SCALE = 0.48
+const MIN_PHONE_SCALE = 0.42
 const MAX_PHONE_SCALE = 1
 const FASTACTION_TEST_SESSION_KEY = 'fastaction_test_session_id'
 
@@ -1029,12 +1029,16 @@ function updatePhoneScale() {
   if (typeof window === 'undefined') return
   const containerWidth = previewStageRef.value?.clientWidth || window.innerWidth
   const hasRunControlColumn = window.matchMedia('(min-width: 1536px)').matches
-  const reservedRunControlWidth = hasRunControlColumn ? 320 + PHONE_GAP : 0
+  const hasSideBySidePhones = window.matchMedia('(min-width: 900px)').matches
+  const reservedRunControlWidth = hasRunControlColumn ? 360 + PHONE_GAP : 0
+  const targetPhoneWidth = hasSideBySidePhones
+    ? USER_PHONE_WIDTH + DEBUG_TRACE_WIDTH + PHONE_GAP
+    : Math.max(USER_PHONE_WIDTH, DEBUG_TRACE_WIDTH)
   const widthForPhones = Math.max(
     1,
-    containerWidth - reservedRunControlWidth - PHONE_GAP
+    containerWidth - reservedRunControlWidth - (hasRunControlColumn ? PHONE_GAP : 0)
   )
-  const widthScale = widthForPhones / (USER_PHONE_WIDTH + DEBUG_TRACE_WIDTH)
+  const widthScale = widthForPhones / targetPhoneWidth
   const availableHeight = Math.max(PHONE_HEIGHT * MIN_PHONE_SCALE, window.innerHeight - 220)
   const heightScale = availableHeight / PHONE_HEIGHT
   const nextScale = Math.min(MAX_PHONE_SCALE, widthScale, heightScale)
@@ -1079,15 +1083,15 @@ onBeforeUnmount(() => {
   <AdminLayout>
     <div class="space-y-3">
       <section class="rounded-xl border border-neutral-200 bg-white/90 px-4 py-3 shadow-sm">
-        <div class="-mx-0.5 flex items-center gap-2 overflow-x-auto whitespace-nowrap px-0.5">
-          <div class="flex min-w-[300px] shrink-0 items-center gap-2">
+        <div class="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
             <h2 class="text-xl font-semibold text-neutral-950">测试台</h2>
             <span class="h-4 w-px bg-neutral-200"></span>
             <span class="text-[11px] font-semibold uppercase tracking-wider text-primary">FastAction Test Bench</span>
             <span class="h-4 w-px bg-neutral-200"></span>
             <span class="text-xs text-neutral-500">用户预览、调试预览和运行配置</span>
           </div>
-          <div class="flex min-w-[620px] flex-1 gap-1.5">
+          <div class="-mx-0.5 flex min-w-0 gap-1.5 overflow-x-auto px-0.5 pb-1 xl:flex-1 xl:justify-end xl:pb-0">
             <div class="min-w-[116px] flex-1 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2">
               <p class="text-xs text-neutral-500">引擎</p>
               <p class="text-sm font-semibold" :class="healthState === 'healthy' ? 'text-success-700' : 'text-warning-700'">{{ healthState }}</p>
@@ -1124,13 +1128,13 @@ onBeforeUnmount(() => {
       </section>
 
       <div v-if="loading" class="rounded-lg border border-neutral-200 bg-white p-8 text-center text-neutral-500 shadow-sm">
-        <i class="fas fa-spinner fa-spin mb-2 text-2xl"></i>
+        <span class="mx-auto mb-2 block h-6 w-6 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-700"></span>
         <p class="text-sm">加载 FastAction 基础配置中...</p>
       </div>
 
       <template v-else>
-        <section ref="previewStageRef" class="grid grid-cols-[min-content_min-content] items-start gap-3 overflow-x-hidden 2xl:grid-cols-[min-content_min-content_minmax(320px,1fr)]">
-          <div class="relative shrink-0" :style="userPhoneShellStyle">
+        <section ref="previewStageRef" class="grid min-w-0 grid-cols-1 items-start gap-3 overflow-hidden min-[900px]:grid-cols-[min-content_min-content] 2xl:grid-cols-[min-content_min-content_minmax(340px,1fr)]">
+          <div class="relative mx-auto shrink-0 min-[900px]:mx-0" :style="userPhoneShellStyle">
           <div class="absolute left-0 top-0 overflow-hidden rounded-[30px] border border-neutral-800 bg-neutral-950 p-1.5 shadow-sm" :style="userPhoneFrameStyle">
             <div class="flex h-[782px] overflow-hidden rounded-[25px] bg-white">
               <div class="flex min-h-0 flex-1 flex-col">
@@ -1140,7 +1144,7 @@ onBeforeUnmount(() => {
                 <p class="mt-0.5 break-words text-sm leading-5 text-neutral-500">{{ plannerIdentityId || '默认身份' }} · Pro Max 360×782</p>
               </div>
               <button class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-neutral-200 text-sm text-neutral-600 hover:bg-neutral-50" type="button" @click="clearChat">
-                <i class="fas fa-rotate-left"></i>
+                <span class="text-base leading-none">↻</span>
               </button>
             </div>
 
@@ -1238,7 +1242,11 @@ onBeforeUnmount(() => {
                           class="flex h-20 w-full items-center justify-center"
                           :class="message.role === 'user' ? 'text-white/70' : 'text-neutral-400'"
                         >
-                          <i class="fas fa-image"></i>
+                          <svg class="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+                            <path d="M8 15l3-3 2 2 2-3 3 4"></path>
+                            <circle cx="9" cy="9" r="1"></circle>
+                          </svg>
                         </div>
                         <div
                           class="truncate px-2 py-1.5 text-[11px]"
@@ -1252,7 +1260,7 @@ onBeforeUnmount(() => {
                 </article>
                 <article v-if="testSending" class="flex justify-start">
                   <div class="rounded-2xl rounded-bl-md bg-white px-4 py-3 text-sm text-neutral-500 shadow-sm">
-                    <i class="fas fa-spinner fa-spin mr-2"></i>思考中...
+                    <span class="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600 align-[-2px]"></span>思考中...
                   </div>
                 </article>
               </div>
@@ -1282,7 +1290,7 @@ onBeforeUnmount(() => {
                     title="移除图片"
                     @click="removeAttachment(index)"
                   >
-                    <i class="fas fa-times"></i>
+                    <span class="leading-none">×</span>
                   </button>
                 </div>
               </div>
@@ -1305,7 +1313,11 @@ onBeforeUnmount(() => {
                   :disabled="testSending"
                   @click="chooseAttachment"
                 >
-                  <i class="fas fa-image"></i>
+                  <svg class="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+                    <path d="M8 15l3-3 2 2 2-3 3 4"></path>
+                    <circle cx="9" cy="9" r="1"></circle>
+                  </svg>
                 </button>
                 <button
                   class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white text-sm text-neutral-700 shadow-sm hover:bg-neutral-50 disabled:opacity-50"
@@ -1315,8 +1327,9 @@ onBeforeUnmount(() => {
                   :disabled="testSending || voiceBusy || !voiceSupported"
                   @click="toggleVoiceRecording"
                 >
-                  <i v-if="voiceBusy" class="fas fa-spinner fa-spin"></i>
-                  <i v-else :class="['fas', isRecording ? 'fa-stop' : 'fa-microphone']"></i>
+                  <span v-if="voiceBusy" class="h-4 w-4 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600"></span>
+                  <span v-else-if="isRecording" class="h-3 w-3 rounded-sm bg-current"></span>
+                  <span v-else class="text-[10px] font-semibold leading-none">MIC</span>
                 </button>
                 <input
                   v-model="testInput"
@@ -1331,7 +1344,10 @@ onBeforeUnmount(() => {
                   :disabled="testSending || (!testInput.trim() && !selectedAttachments.length)"
                   @click="sendTestMessage"
                 >
-                  <i class="fas fa-paper-plane"></i>
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 12h13"></path>
+                    <path d="M13 6l6 6-6 6"></path>
+                  </svg>
                 </button>
               </div>
             </div>
@@ -1340,7 +1356,7 @@ onBeforeUnmount(() => {
           </div>
           </div>
 
-          <div class="relative shrink-0" :style="debugTraceShellStyle">
+          <div class="relative mx-auto shrink-0 min-[900px]:mx-0" :style="debugTraceShellStyle">
           <div class="absolute left-0 top-0 overflow-hidden rounded-[30px] border border-neutral-800 bg-neutral-950 p-1.5 shadow-sm" :style="debugTraceFrameStyle">
             <div class="flex h-[782px] overflow-hidden rounded-[25px] bg-white">
               <div class="flex min-h-0 flex-1 flex-col">
@@ -1376,7 +1392,11 @@ onBeforeUnmount(() => {
                       >
                         <img v-if="attachment.previewUrl" :src="attachment.previewUrl" :alt="attachment.name" class="h-10 w-10 shrink-0 rounded-lg object-cover">
                         <div v-else class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/50 text-neutral-400">
-                          <i class="fas fa-image"></i>
+                          <svg class="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+                            <path d="M8 15l3-3 2 2 2-3 3 4"></path>
+                            <circle cx="9" cy="9" r="1"></circle>
+                          </svg>
                         </div>
                         <div class="min-w-0 flex-1">
                           <p class="truncate font-mono text-xs">{{ attachment.name }}</p>
@@ -1402,7 +1422,7 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="flex shrink-0 items-center gap-2 text-xs text-neutral-500">
                           <span class="font-mono">{{ resultConfidence(message.result) }}</span>
-                          <i class="fas fa-chevron-down transition-transform group-open:rotate-180"></i>
+                          <span class="inline-block transition-transform group-open:rotate-180">⌄</span>
                         </div>
                       </summary>
                       <div class="space-y-3 border-t border-neutral-100 px-3 pb-3 pt-3">
@@ -1459,7 +1479,7 @@ onBeforeUnmount(() => {
                 </article>
                 <article v-if="testSending" class="flex justify-start">
                   <div class="rounded-2xl rounded-bl-md bg-white px-4 py-3 text-sm text-neutral-500 shadow-sm">
-                    <i class="fas fa-spinner fa-spin mr-2"></i>规划中...
+                    <span class="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600 align-[-2px]"></span>规划中...
                   </div>
                 </article>
               </div>
@@ -1469,7 +1489,7 @@ onBeforeUnmount(() => {
           </div>
           </div>
 
-          <aside class="col-span-2 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm 2xl:col-span-1">
+          <aside class="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm min-[900px]:col-span-2 2xl:col-span-1">
             <div class="border-b border-neutral-100 px-5 py-4">
               <h3 class="text-base font-semibold text-neutral-950">运行控制</h3>
               <p class="mt-0.5 text-sm text-neutral-500">选择模型、身份和测试上下文。</p>
@@ -1536,7 +1556,7 @@ onBeforeUnmount(() => {
             type="button"
             @click="systemSettingsCollapsed = !systemSettingsCollapsed"
           >
-            <i class="fas fa-chevron-down text-xs text-neutral-500 transition-transform group-hover:text-neutral-700" :class="systemSettingsCollapsed ? '-rotate-90' : 'rotate-0'"></i>
+            <span class="inline-block text-xs text-neutral-500 transition-transform group-hover:text-neutral-700" :class="systemSettingsCollapsed ? '-rotate-90' : 'rotate-0'">⌄</span>
             系统设置
           </button>
           <div class="h-px flex-1 bg-neutral-200"></div>
