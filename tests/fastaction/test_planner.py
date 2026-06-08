@@ -28,6 +28,10 @@ def make_api(risk=RiskLevel.READ):
                     "label": {"zh": "资源", "en": "Resource"},
                     "description": {"zh": "要查询的资源 ID", "en": "Resource ID to query"},
                     "source": ["context.current_resource.id", "clarify"],
+                    "ui": {
+                        "input": "entity_picker",
+                        "hint": {"zh": "请选择一个有权限访问的资源。", "en": "Choose an accessible resource."},
+                    },
                 }
             },
         },
@@ -122,6 +126,28 @@ def test_planner_prefers_mentioned_entity_over_current_context():
     assert instruction.params["resourceId"] == "res_0501"
 
 
+def test_planner_clarifies_when_mentioned_entity_is_not_in_candidates():
+    api = make_api()
+    api.parameters["properties"]["resourceId"]["resolve_entity"] = "resource"
+    instruction = DeterministicPlanner().plan(
+        ChatRequest(
+            text="查询测试资源 05051 的状态",
+            context={
+                "current_resource": {"id": "res_wrong", "name": "当前默认资源"},
+                "available_resources": [
+                    {"id": "res_0501", "name": "测试资源 0501"},
+                    {"id": "res_0510", "name": "测试资源 0510"},
+                ],
+            },
+        ),
+        [api],
+    )
+
+    assert instruction.action == "clarify"
+    assert instruction.params == {}
+    assert instruction.clarify.missing_params == ["resourceId"]
+
+
 def test_planner_clarifies_when_required_param_missing():
     instruction = DeterministicPlanner().plan(ChatRequest(text="查一下当前状态"), [make_api()])
 
@@ -133,6 +159,8 @@ def test_planner_clarifies_when_required_param_missing():
     assert instruction.clarify.missing_param_details[0].label == {"zh": "资源", "en": "Resource"}
     assert instruction.clarify.missing_param_details[0].type == "string"
     assert instruction.clarify.missing_param_details[0].source == ["context.current_resource.id", "clarify"]
+    assert instruction.clarify.missing_param_details[0].ui["input"] == "entity_picker"
+    assert instruction.clarify.missing_param_details[0].ui["hint"]["zh"] == "请选择一个有权限访问的资源。"
     assert instruction.render.card_type == "missing_params_card"
     assert instruction.render.fallback_card_type == "picker_card"
     assert instruction.render.state == "missing_params"

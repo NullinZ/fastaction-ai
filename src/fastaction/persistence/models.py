@@ -80,6 +80,19 @@ class FastActionCardBindingModel(FastActionBase):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class FastActionHostExecutorDefinitionModel(FastActionBase):
+    __tablename__ = "host_executor_definitions"
+    __table_args__ = {"schema": FASTACTION_SCHEMA}
+
+    id = Column(String(160), primary_key=True)
+    host_app = Column(String(120), nullable=False, index=True, default="default")
+    kind = Column(String(80), nullable=False, index=True, default="host_proxy")
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class FastActionKnowledgeDefinitionModel(FastActionBase):
     __tablename__ = "knowledge_definitions"
     __table_args__ = {"schema": FASTACTION_SCHEMA}

@@ -15,6 +15,7 @@ from fastaction.planner import DeterministicPlanner, LLMPlanner
 from fastaction.persistence import (
     clear_test_messages,
     delete_api_definition as persist_delete_api_definition,
+    delete_host_executor_definition as persist_delete_host_executor_definition,
     delete_identity_definition as persist_delete_identity_definition,
     delete_option_set as persist_delete_option_set,
     delete_provider_config as persist_delete_provider_config,
@@ -22,10 +23,12 @@ from fastaction.persistence import (
     list_execution_results,
     list_run_records as list_persisted_run_records,
     list_test_messages,
+    persistence_enabled,
     persist_api_definition,
     persist_card_binding,
     persist_card_definition,
     persist_execution_result,
+    persist_host_executor_definition,
     persist_identity_definition,
     persist_knowledge_definition,
     persist_option_set,
@@ -51,6 +54,7 @@ from fastaction.schemas import (
     CardDefinition,
     ChatRequest,
     ExecutionResult,
+    HostExecutorDefinition,
     IdentityDefinition,
     Instruction,
     KnowledgeDefinition,
@@ -137,7 +141,14 @@ class OptionSetResolvePayload(BaseModel):
 
 @router.get("/health")
 def health():
-    return {"status": "healthy", "engine": "FastAction"}
+    return {
+        "status": "healthy",
+        "engine": "FastAction",
+        "persistence": {
+            "enabled": persistence_enabled(),
+            "initialized": fastaction_persistence_initialized(),
+        },
+    }
 
 
 @router.post("/chat")
@@ -261,6 +272,39 @@ def preview_card_binding(payload: CardPreviewRequest):
     )
 
 
+@router.get("/host-executors")
+def list_host_executor_definitions():
+    return runtime.host_executor_definitions.list()
+
+
+@router.post("/host-executors")
+def upsert_host_executor_definition(payload: HostExecutorDefinition):
+    saved = runtime.host_executor_definitions.upsert(payload)
+    persist_host_executor_definition(saved)
+    return saved
+
+
+@router.get("/host-executors/{executor_id}")
+def get_host_executor_definition(executor_id: str):
+    return _get_or_404(runtime.host_executor_definitions, executor_id)
+
+
+@router.put("/host-executors/{executor_id}")
+def update_host_executor_definition(executor_id: str, payload: HostExecutorDefinition):
+    if payload.id != executor_id:
+        raise HTTPException(status_code=400, detail="payload id must match path id")
+    saved = runtime.host_executor_definitions.upsert(payload)
+    persist_host_executor_definition(saved)
+    return saved
+
+
+@router.delete("/host-executors/{executor_id}")
+def delete_host_executor_definition(executor_id: str):
+    _delete_or_404(runtime.host_executor_definitions, executor_id)
+    persist_delete_host_executor_definition(executor_id)
+    return {"deleted": True}
+
+
 @router.get("/provider-presets")
 def list_provider_presets():
     return provider_presets()
@@ -364,15 +408,43 @@ async def test_provider_config(provider_id: str, payload: ProviderTestRequest):
     return {"mode": "live", "ok": True, **preview, "response": response}
 
 
-@router.get("/provider-configs/qwen-balanced-service/model-pool")
-def get_qwen_balanced_model_pool_status():
+@router.get("/provider-configs/{provider_id}/model-pool")
+def get_provider_model_pool_status(provider_id: str):
+    config = _get_or_404(runtime.provider_configs, provider_id)
+    return _provider_model_pool_status(config)
+
+
+def _provider_model_pool_status(config: ProviderConfig):
+    capabilities = set(config.capabilities or [])
+    if "model_pool" not in capabilities and "balanced_routing" not in capabilities:
+        raise HTTPException(status_code=400, detail="provider does not declare model_pool capability")
+
+    service = str((config.extra or {}).get("service") or "")
+    provider = str(config.provider)
+    if service not in {"qwen_balanced_model_pool", "qwen_model_pool"} and provider not in {"qwen", "ProviderKind.QWEN"}:
+        return {
+            "provider_id": config.id,
+            "provider": config.provider,
+            "model": config.model,
+            "service": service or None,
+            "expires_at": None,
+            "models": [],
+            "model_count": 0,
+            "inspectable": False,
+            "message": "No built-in model-pool inspector is registered for this provider.",
+        }
+
     expires_at = qwen_free_quota_expires_at()
     candidates = select_qwen_candidates()
     return {
-        "provider_id": "qwen-balanced-service",
+        "provider_id": config.id,
+        "provider": config.provider,
+        "model": config.model,
+        "service": service or "qwen_balanced_model_pool",
         "expires_at": expires_at.isoformat() if expires_at else None,
         "models": [serialize_qwen_usage(item) for item in candidates],
         "model_count": len(QWEN_FREE_QUOTA_MODEL_NAMES),
+        "inspectable": True,
     }
 
 
@@ -502,8 +574,9 @@ def list_runs(limit: int = Query(100, ge=1, le=500)):
 def get_test_messages(
     session_id: str | None = Query(None, max_length=160),
     limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
-    return list_test_messages(session_id=session_id, limit=limit)
+    return list_test_messages(session_id=session_id, limit=limit, offset=offset)
 
 
 @router.post("/test-messages")

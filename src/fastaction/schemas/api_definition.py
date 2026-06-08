@@ -8,6 +8,7 @@ from fastaction.domain.enums import AuthMode, OperationType, RiskLevel
 from fastaction.schemas.common import FastActionModel, IntentDefinition, JsonObject, LocalizedText
 
 AuthPlacement = Literal["header", "query", "cookie", "transport", "none"]
+APIExecutionMode = Literal["none", "host_executor", "manual"]
 
 
 class APIAuthDefinition(FastActionModel):
@@ -107,6 +108,15 @@ class APIRenderDefinition(FastActionModel):
     field_bindings: dict[str, str] = Field(default_factory=dict)
 
 
+class APIExecutionDefinition(FastActionModel):
+    mode: APIExecutionMode = "none"
+    executor_id: str | None = None
+    requires_confirmation: bool | None = None
+    input_mapping: JsonObject = Field(default_factory=dict)
+    endpoints: JsonObject = Field(default_factory=dict)
+    metadata: JsonObject = Field(default_factory=dict)
+
+
 class APIDefinition(FastActionModel):
     id: str = Field(..., min_length=1, max_length=160)
     name: LocalizedText
@@ -119,6 +129,7 @@ class APIDefinition(FastActionModel):
     response: APIResponseDefinition = Field(default_factory=APIResponseDefinition)
     policy: APIPolicyDefinition = Field(default_factory=APIPolicyDefinition)
     render: APIRenderDefinition = Field(default_factory=APIRenderDefinition)
+    execution: APIExecutionDefinition = Field(default_factory=APIExecutionDefinition)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("id")

@@ -1,5 +1,6 @@
-from .api_definition import APIAuthDefinition, APIDefinition
+from .api_definition import APIAuthDefinition, APIDefinition, APIExecutionDefinition
 from .card_definition import CardDefinition, CardBinding
+from .host_executor_definition import HostExecutorDefinition, HostExecutorMatcher
 from .provider_config import ProviderConfig
 from .identity_definition import IdentityDefinition
 from .knowledge_definition import KnowledgeDefinition
@@ -11,8 +12,11 @@ from .run import RunRecord
 __all__ = [
     "APIDefinition",
     "APIAuthDefinition",
+    "APIExecutionDefinition",
     "CardDefinition",
     "CardBinding",
+    "HostExecutorDefinition",
+    "HostExecutorMatcher",
     "ProviderConfig",
     "IdentityDefinition",
     "KnowledgeDefinition",

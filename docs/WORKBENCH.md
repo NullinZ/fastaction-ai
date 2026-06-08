@@ -89,6 +89,7 @@ flowchart LR
   TestBench --> DebugPhone["Debug Preview Phone"]
   TestBench --> Settings["System Settings"]
   Settings --> Provider["Provider Registry"]
+  Settings --> HostExecutors["Host Executor Registry"]
   Settings --> Identity["Identity Registry"]
   Settings --> Context["Context Registry"]
   Settings --> Options["Option Registry"]
@@ -109,6 +110,7 @@ Functional blocks:
 ```text
 Top summary:
   Engine health, registered capability count, provider count, identity count, and active model-pool status.
+  Model-pool status is resolved from Provider capabilities and provider_id.
 
 Left list:
   Search by API ID, name, path, card type, operation type, and keyword.
@@ -135,6 +137,7 @@ Right inspector:
 ```text
 顶部摘要：
   引擎健康状态、能力数量、Provider 数量、身份数量和模型池状态。
+  模型池状态由 Provider capabilities 和 provider_id 动态解析。
 
 左侧列表：
   支持按 API ID、名称、路径、卡片类型、操作类型和关键词搜索。
@@ -206,7 +209,7 @@ The test bench validates runtime behavior before a host application exposes the 
 Input:
   - text
   - voice transcription through an ASR provider or host ASR adapter
-  - image/file attachment metadata
+  - attachment metadata for images, PDF, video, audio, DWG/DXF, and generic files
   - optional explicit params
   - optional context JSON
 
@@ -385,13 +388,31 @@ Write operations must be confirmable before execution. The test bench should dis
 
 写操作必须可确认。测试台应展示确认卡；除非当前环境显式接入 Host Executor，否则不直接执行真实业务 API。
 
+A Host Executor has two separate parts:
+
+```text
+1. HostExecutorDefinition in FastAction Registry:
+   id, host_app, kind, matcher, input_contract, output_contract, runtime hints.
+2. Runtime implementation in the Host App:
+   browser upload, host proxy, webhook, or another adapter using real user auth.
+```
+
+Host Executor 分成两部分：
+
+```text
+1. FastAction Registry 里的 HostExecutorDefinition：
+   id、host_app、kind、matcher、input_contract、output_contract、runtime 提示。
+2. Host App 里的真实运行实现：
+   浏览器上传、宿主代理、Webhook 或其他使用真实用户权限的 adapter。
+```
+
 Default generic behavior:
 
 ```text
 1. The planner returns confirm or invoke_api.
 2. The test bench renders the confirmation and debug trace.
 3. After confirmation, the generic test bench writes a simulated ExecutionResult.
-4. Real execution is implemented by the host application's executor adapter.
+4. Real execution requires a matching HostExecutorDefinition and a host application's executor adapter.
 ```
 
 默认通用行为：
@@ -400,7 +421,48 @@ Default generic behavior:
 1. Planner 返回 confirm 或 invoke_api。
 2. 测试台渲染确认卡和调试 Trace。
 3. 用户确认后，通用测试台只写入模拟 ExecutionResult。
-4. 真实业务执行由宿主系统的 executor adapter 实现。
+4. 真实业务执行需要匹配 HostExecutorDefinition，并由宿主系统的 executor adapter 实现。
+```
+
+Provider and model-pool behavior:
+
+```text
+1. The bench lists ProviderConfig rows from the registry.
+2. It selects a default provider by capabilities, preferring model_pool +
+   balanced_routing + chat, then any active chat provider.
+3. It loads model-pool status through
+   /fastaction/provider-configs/{provider_id}/model-pool.
+4. It must not hard-code qwen-balanced-service or any other vendor ID in the
+   generic UI. Vendor-specific behavior belongs to provider presets/plugins.
+```
+
+Provider 和模型池行为：
+
+```text
+1. 测试台从注册表读取 ProviderConfig 列表。
+2. 默认 provider 按能力选择，优先 model_pool + balanced_routing + chat，
+   然后回退到任意 active chat provider。
+3. 模型池状态通过
+   /fastaction/provider-configs/{provider_id}/model-pool 加载。
+4. 通用 UI 不能硬编码 qwen-balanced-service 或任何厂商 ID。
+   厂商专属行为属于 provider preset/plugin。
+```
+
+Host Executor visibility:
+
+```text
+The Test Bench includes a Host Executor overview so developers can see which
+execution contracts are registered. The open-source bench shows registry
+definitions only; host applications may additionally show whether a same-ID
+runtime implementation is wired in the current app.
+```
+
+Host Executor 可见性：
+
+```text
+测试台包含 Host Executor 概览，让开发者能看到已注册的执行契约。
+开源测试台只展示注册定义；宿主应用可以额外展示当前应用是否已经接入
+同 ID 的 runtime implementation。
 ```
 
 ```text

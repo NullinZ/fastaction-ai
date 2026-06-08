@@ -51,6 +51,7 @@ class MissingParamDetail(FastActionModel):
     source: list[str] = Field(default_factory=list)
     option_set: str | None = None
     resolve_entity: str | None = None
+    ui: JsonObject = Field(default_factory=dict)
     required: bool = True
 
 

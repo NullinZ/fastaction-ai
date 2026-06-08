@@ -15,6 +15,52 @@ PYTHONPATH=src python -m pytest tests/fastaction -q
 cd frontend/workbench && npm run build
 ```
 
+## 2026-06-08 Provider Model Pool Registry UX / Provider 模型池注册体验
+
+```text
+Goal:
+  Remove hidden provider-ID assumptions from the generic Test Bench so open-source
+  users can understand and change model routing from visible ProviderConfig rows.
+
+Implemented:
+  - Added GET /fastaction/provider-configs/{provider_id}/model-pool.
+  - The Test Bench now picks its default planner provider by capabilities:
+      model_pool + balanced_routing + chat
+      any active model_pool / balanced_routing provider
+      any active chat provider
+  - The model-pool panel is generic and no longer hard-codes
+    qwen-balanced-service in the Vue component.
+  - The Test Bench settings now include a Host Executor overview so registered
+    execution contracts are visible without reading host code.
+  - Qwen remains a Provider preset/plugin, not a special Workbench dependency.
+
+Boundary:
+  Provider-specific pool inspection belongs to provider plugins. The generic UI
+  only reads ProviderConfig capabilities and provider_id.
+```
+
+```text
+目标：
+  移除通用测试台里隐藏的 provider_id 假设，让开源使用者能从可见的
+  ProviderConfig 行理解并替换模型路由。
+
+已实现：
+  - 新增 GET /fastaction/provider-configs/{provider_id}/model-pool。
+  - 测试台默认 planner provider 改为按能力选择：
+      model_pool + balanced_routing + chat
+      任意 active model_pool / balanced_routing provider
+      任意 active chat provider
+  - 模型池面板改为通用面板，不再在 Vue 组件中硬编码
+    qwen-balanced-service。
+  - 测试台系统设置新增 Host Executor 概览，不读宿主代码也能看到
+    已注册执行契约。
+  - Qwen 仍然是 Provider preset/plugin，不是 Workbench 特殊依赖。
+
+边界：
+  厂商专属模型池探测属于 provider plugin。通用 UI 只读取
+  ProviderConfig capabilities 和 provider_id。
+```
+
 If the Python virtualenv from a host project is needed:
 
 ```bash
@@ -113,6 +159,61 @@ Import smoke:
   fastaction.__version__ = 0.1.0
   router.prefix = /fastaction
   route count = 36
+```
+
+## 2026-06-08 Workbench Registration-Data Boundary
+
+```text
+Goal:
+  Remove scattered test-bench hardcoding and make parameter prompts/provider
+  templates driven by FastAction registration data.
+
+Implemented:
+  - Added MissingParamDetail.ui to the instruction protocol.
+  - Deterministic planner now copies parameter ui metadata into clarify payloads.
+  - Workbench provider creation templates now load /provider-presets instead of
+    embedding a qwen-balanced-service payload in the Vue component.
+  - Generic demo context and quick questions moved into a scenario preset file.
+  - Migration boundary docs now classify what belongs in registration data and
+    what must stay in host adapter code.
+
+Boundary:
+  Real business execution functions remain host adapter code. FastAction can
+  describe an executor in metadata, but cannot store executable browser/File
+  handling logic in API registration data.
+
+Validation:
+  - PYTHONPATH=src /path/to/host/.venv/bin/python -m pytest tests/fastaction -q
+    Result: 38 passed.
+  - python3 scripts/validate_fastaction_boundaries.py
+    Result: passed.
+  - cd frontend/workbench && npm run build
+    Result: passed.
+```
+
+```text
+目标：
+  清理测试台散落硬编码，让补参提示和 Provider 模板来自 FastAction 注册数据。
+
+已实现：
+  - Instruction 协议新增 MissingParamDetail.ui。
+  - Deterministic planner 会把参数 ui metadata 带入 clarify payload。
+  - Workbench 创建 Provider 时读取 /provider-presets，不再在 Vue 组件中
+    内置 qwen-balanced-service 完整配置。
+  - 通用 demo 上下文和快捷问题移入 scenario preset 文件。
+  - 迁移边界文档补充“注册数据 vs 宿主 adapter”规则。
+
+边界：
+  真实业务执行函数仍属于宿主 adapter。FastAction 可以用 metadata 描述执行器，
+  但不把浏览器 File 处理或真实业务函数存成 API 注册数据。
+
+验证：
+  - PYTHONPATH=src /path/to/host/.venv/bin/python -m pytest tests/fastaction -q
+    Result: 38 passed.
+  - python3 scripts/validate_fastaction_boundaries.py
+    Result: passed.
+  - cd frontend/workbench && npm run build
+    Result: passed.
 ```
 
 Commit:
@@ -407,6 +508,51 @@ Boundary:
   API, parameter, option, context, attachment, and card concepts.
 ```
 
+## 2026-06-08 Host Executor Registry
+
+```text
+Goal:
+  Make real execution configurable as a registry contract instead of hidden host
+  code.
+
+Implemented:
+  - Added HostExecutorDefinition and HostExecutorMatcher schemas.
+  - Added runtime.host_executor_definitions.
+  - Added fastaction.host_executor_definitions persistence model.
+  - Added /fastaction/host-executors CRUD endpoints.
+  - Added APIDefinition.execution for mode, executor_id, input_mapping,
+    endpoints, and metadata.
+  - Bound the default tasks.my_todos sample API to example.host_proxy.
+  - Updated Workbench API registration UI to show Execution Mode and Host
+    Executor binding.
+
+Boundary:
+  FastAction stores the executor contract and audit trail. Host applications own
+  actual runtime execution, current user auth, files, and business side effects.
+```
+
+## 2026-06-08 Explicit Entity Mention Guard
+
+```text
+Goal:
+  Prevent natural-language execution from silently falling back to a current
+  context entity when the user explicitly mentions a different entity that is not
+  registered in available candidates.
+
+Implemented:
+  - ParameterResolver now blocks source fallback for resolve_entity parameters
+    when entity candidates exist, the text mentions the entity type, and no
+    candidate matches the mention.
+  - Existing "current context" behavior remains available when the user does not
+    explicitly name another entity or no candidates are supplied.
+
+Validation:
+  - Added planner regression coverage for "测试资源 05051" with candidates
+    "测试资源 0501" and "测试资源 0510".
+  - PYTHONPATH=src /path/to/host/.venv/bin/python -m pytest tests/fastaction -q
+    Result: 41 passed.
+```
+
 ```text
 目标：
   降低企业工程师接入负担。他们了解自己的 API，但不应该先理解
@@ -480,4 +626,68 @@ Boundary:
 边界：
   OptionSet 仍是通用 FastAction 资源。宿主业务的具体字典值由
   宿主应用或宿主适配器注册进来。
+```
+
+## 2026-06-08 Generic Attachment Format Support / 通用附件格式支持
+
+```text
+Goal:
+  Make the Workbench Test Bench validate common enterprise attachment flows
+  instead of assuming every attachment is an image.
+
+Implemented:
+  - Test Bench file picker accepts images, PDF, video, audio, DWG, and DXF.
+  - Attachment normalization records a generic file kind and only creates
+    browser previews for image files.
+  - User preview and debug trace render non-image files as compact type badges.
+  - Architecture docs now model accepted MIME types and extensions in the
+    attachment plan.
+
+Boundary:
+  FastAction still does not store binary attachments by default. The host
+  application owns upload, transaction handling, retention, virus scanning,
+  and business storage.
+
+Validation:
+  - repository:
+      PYTHONPATH=src python -m pytest tests/fastaction -q
+      Result: 38 passed.
+  - frontend/workbench:
+      npm run build
+      Result: passed.
+  - repository:
+      git diff --check
+      Result: passed.
+  - repository:
+      python3 scripts/validate_fastaction_boundaries.py
+      Result: passed.
+```
+
+```text
+目标：
+  让 Workbench 测试台覆盖企业常见附件流程，不再默认所有附件都是图片。
+
+已实现：
+  - 测试台文件选择支持图片、PDF、视频、音频、DWG 和 DXF。
+  - 附件归一化记录通用文件类型，只对图片生成浏览器预览。
+  - 用户预览和调试 Trace 对非图片文件显示紧凑类型徽标。
+  - 架构文档把 MIME 类型和文件扩展名纳入附件计划。
+
+边界：
+  FastAction 默认仍不保存二进制附件。真实上传、事务、留存、病毒扫描
+  和业务存储都由宿主应用负责。
+
+验证：
+  - 仓库：
+      PYTHONPATH=src python -m pytest tests/fastaction -q
+      结果：38 passed。
+  - frontend/workbench:
+      npm run build
+      结果：通过。
+  - 仓库：
+      git diff --check
+      结果：通过。
+  - 仓库：
+      python3 scripts/validate_fastaction_boundaries.py
+      结果：通过。
 ```

@@ -20,15 +20,29 @@ function jsonRequest(path, method, body) {
   return request(path, { method, body: JSON.stringify(body ?? {}) })
 }
 
+function queryString(params = {}) {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') search.set(key, value)
+  })
+  const value = search.toString()
+  return value ? `?${value}` : ''
+}
+
 export const getFastActionHealth = () => request('/health')
 export const getFastActionApiDefinitions = () => request('/api-definitions')
 export const saveFastActionApiDefinition = (payload) => jsonRequest('/api-definitions', 'POST', payload)
 export const deleteFastActionApiDefinition = (id) => request(`/api-definitions/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const getFastActionCardDefinitions = () => request('/card-definitions')
+export const getFastActionHostExecutors = () => request('/host-executors')
+export const saveFastActionHostExecutor = (payload) => jsonRequest('/host-executors', 'POST', payload)
+export const deleteFastActionHostExecutor = (id) => request(`/host-executors/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const getFastActionProviderConfigs = () => request('/provider-configs')
+export const getFastActionProviderPresets = () => request('/provider-presets')
 export const saveFastActionProviderConfig = (payload) => jsonRequest('/provider-configs', 'POST', payload)
 export const deleteFastActionProviderConfig = (id) => request(`/provider-configs/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const testFastActionProviderConfig = (id, payload) => jsonRequest(`/provider-configs/${encodeURIComponent(id)}/test`, 'POST', payload)
+export const getFastActionProviderModelPoolStatus = (id) => request(`/provider-configs/${encodeURIComponent(id)}/model-pool`)
 export const getFastActionIdentityDefinitions = () => request('/identity-definitions')
 export const saveFastActionIdentityDefinition = (payload) => jsonRequest('/identity-definitions', 'POST', payload)
 export const deleteFastActionIdentityDefinition = (id) => request(`/identity-definitions/${encodeURIComponent(id)}`, { method: 'DELETE' })
@@ -41,7 +55,9 @@ export const saveFastActionOptionSet = (payload, isUpdate = false) => {
 export const deleteFastActionOptionSet = (id) => request(`/option-sets/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const getFastActionRuns = () => request('/runs')
 export const planFastActionChat = (payload) => jsonRequest('/chat', 'POST', payload)
-export const getFastActionTestMessages = (sessionId) => request(`/test-messages${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`)
+export const getFastActionTestMessages = (params = {}) => {
+  const normalized = typeof params === 'string' ? { session_id: params } : params
+  return request(`/test-messages${queryString(normalized)}`)
+}
 export const clearFastActionTestMessages = (sessionId) => request(`/test-messages?session_id=${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
-export const getQwenModelPoolStatus = () => request('/provider-configs/qwen-balanced-service/model-pool')
 export const transcribeFastActionAudio = (formData) => request('/audio/transcriptions', { method: 'POST', body: formData })

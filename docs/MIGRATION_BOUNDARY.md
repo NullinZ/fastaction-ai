@@ -160,3 +160,43 @@ Required checks:
 5. 写操作确认和权限拒绝状态已验证。
 6. 没有生产路由依赖被删除的宿主文件。
 ```
+
+## 5. Registration Data vs Host Adapter / 注册数据与宿主适配器
+
+```text
+Store as registration data:
+  - API IDs, names, intent examples, keywords
+  - request method, endpoint, auth mode, timeout, retry policy
+  - parameter schema, required fields, labels, user hints, UI input type
+  - OptionSets and entity resolution sources
+  - risk level, confirmation policy, permissions
+  - response field exposure, redaction, card binding
+  - provider presets and identity definitions
+  - test scenario presets for demo context and quick questions
+
+Keep in host adapter code:
+  - real API execution functions
+  - browser File / Blob / FormData handling
+  - token extraction from the host runtime
+  - host-specific network fallback and gateway selection
+  - final business transaction handling
+```
+
+```text
+应该作为注册数据：
+  - API ID、名称、意图示例、关键词
+  - 请求方法、路径、鉴权模式、超时、重试策略
+  - 参数 schema、必填字段、业务标签、用户提示、输入控件类型
+  - 字典 OptionSet 和实体校准来源
+  - 风险等级、确认策略、权限
+  - 返回字段暴露、脱敏、卡片绑定
+  - Provider 预设和身份定义
+  - 测试场景 preset 中的演示上下文和快捷问题
+
+应该留在宿主 adapter 代码：
+  - 真实 API 执行函数
+  - 浏览器 File / Blob / FormData 处理
+  - 从宿主运行时读取 token
+  - 宿主系统特有的网络 fallback 和网关选择
+  - 最终业务事务处理
+```

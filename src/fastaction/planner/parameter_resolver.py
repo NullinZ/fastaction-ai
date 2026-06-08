@@ -56,6 +56,8 @@ class ParameterResolver:
             value = self._from_entity_definition(definition, context, text)
             if value is not None:
                 return value
+            if _should_block_entity_fallback(definition, context, text):
+                return None
         value = self._from_sources(api.parameter_sources(parameter_name), context, provided_params)
         if isinstance(definition, dict):
             value = self._normalize_option_value(definition, value)
@@ -216,6 +218,28 @@ def _entity_candidates(context: dict[str, Any], entity_type: str) -> list[Any]:
             for key in (entity_type, plural):
                 result.extend(_coerce_candidates(container.get(key)))
     return _dedupe_candidates(result, entity_type)
+
+
+def _should_block_entity_fallback(definition: dict[str, Any], context: dict[str, Any], text: str) -> bool:
+    entity_type = definition.get("resolve_entity")
+    if not isinstance(entity_type, str) or not entity_type.strip() or not text:
+        return False
+    entity_type = entity_type.strip()
+    if not _entity_candidates(context, entity_type):
+        return False
+    return _entity_mention_present(entity_type, text)
+
+
+def _entity_mention_present(entity_type: str, text: str) -> bool:
+    normalized_text = _normalize_match_text(text)
+    markers = {
+        "project": ["project", "项目", "工程"],
+        "resource": ["resource", "资源"],
+        "workspace": ["workspace", "空间", "工作区"],
+        "tenant": ["tenant", "租户"],
+        "user": ["user", "用户"],
+    }.get(entity_type, [entity_type, _pluralize(entity_type)])
+    return any(_normalize_match_text(marker) in normalized_text for marker in markers if marker)
 
 
 def _coerce_candidates(value: Any) -> list[Any]:

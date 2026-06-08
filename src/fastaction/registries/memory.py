@@ -6,6 +6,7 @@ from fastaction.schemas import (
     APIDefinition,
     CardBinding,
     CardDefinition,
+    HostExecutorDefinition,
     IdentityDefinition,
     KnowledgeDefinition,
     OptionSetDefinition,
@@ -20,6 +21,7 @@ class FastActionRuntime:
         self.card_bindings = InMemoryRegistry[CardBinding](
             lambda item: item.id or f"{item.host_app}:{item.card_type}:{item.component_key}"
         )
+        self.host_executor_definitions = InMemoryRegistry[HostExecutorDefinition](lambda item: item.id)
         self.provider_configs = InMemoryRegistry[ProviderConfig](lambda item: item.id)
         self.identity_definitions = InMemoryRegistry[IdentityDefinition](lambda item: item.id)
         self.knowledge_definitions = InMemoryRegistry[KnowledgeDefinition](lambda item: item.id)
@@ -32,6 +34,8 @@ class FastActionRuntime:
             self.card_definitions.upsert(card)
         for provider in default_provider_presets():
             self.provider_configs.upsert(provider)
+        for executor in default_host_executor_definitions():
+            self.host_executor_definitions.upsert(executor)
         for identity in default_identity_definitions():
             self.identity_definitions.upsert(identity)
         for option_set in default_option_sets():
@@ -109,12 +113,47 @@ def default_api_definitions() -> list[APIDefinition]:
                     "items": "$.data.tasks",
                 },
             },
+            execution={
+                "mode": "host_executor",
+                "executor_id": "example.host_proxy",
+                "requires_confirmation": False,
+                "input_mapping": {"workspace_id": "params.workspace_id", "limit": "params.limit"},
+                "endpoints": {"primary": "/api/v1/tasks/my-todos"},
+            },
             metadata={
                 "host_app": "example",
                 "source": "seed_default",
                 "sample": True,
             },
         ),
+    ]
+
+
+def default_host_executor_definitions() -> list[HostExecutorDefinition]:
+    return [
+        HostExecutorDefinition(
+            id="example.host_proxy",
+            name={"zh": "示例宿主代理执行器", "en": "Example host proxy executor"},
+            host_app="example",
+            kind="host_proxy",
+            description={
+                "zh": "示例执行器定义。真实执行代码由宿主应用实现，FastAction 只保存注册协议和审计结果。",
+                "en": "Example executor definition. The host application implements runtime execution; FastAction stores only the contract and audit result.",
+            },
+            matcher={"api_ids": ["tasks.my_todos"], "methods": ["GET"]},
+            input_contract={
+                "auth": "Use the signed-in user's token from request context.",
+                "params": "Resolved pending_instruction.params.",
+            },
+            output_contract={
+                "result": "Host app posts ExecutionResult back to /fastaction/execution-results.",
+            },
+            runtime={
+                "implementation": "host_app",
+                "configured_by": "host",
+            },
+            metadata={"sample": True},
+        )
     ]
 
 

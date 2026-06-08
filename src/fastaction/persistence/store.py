@@ -17,6 +17,7 @@ from fastaction.persistence.models import (
     FastActionCardBindingModel,
     FastActionCardDefinitionModel,
     FastActionExecutionResultModel,
+    FastActionHostExecutorDefinitionModel,
     FastActionIdentityDefinitionModel,
     FastActionKnowledgeDefinitionModel,
     FastActionOptionSetModel,
@@ -30,6 +31,7 @@ from fastaction.schemas import (
     CardBinding,
     CardDefinition,
     ExecutionResult,
+    HostExecutorDefinition,
     IdentityDefinition,
     KnowledgeDefinition,
     OptionSetDefinition,
@@ -50,7 +52,7 @@ def persistence_enabled() -> bool:
 
 
 def is_initialized() -> bool:
-    return _initialized and _session_factory is not None and persistence_enabled()
+    return _initialized and _session_factory is not None
 
 
 def initialize_fastaction_persistence(
@@ -112,6 +114,10 @@ def load_runtime_from_store(runtime) -> None:
         for row in session.query(FastActionCardBindingModel).order_by(FastActionCardBindingModel.id).all():
             runtime.card_bindings.upsert(CardBinding.model_validate(row.payload))
 
+        runtime.host_executor_definitions.clear()
+        for row in session.query(FastActionHostExecutorDefinitionModel).order_by(FastActionHostExecutorDefinitionModel.id).all():
+            runtime.host_executor_definitions.upsert(HostExecutorDefinition.model_validate(row.payload))
+
         runtime.provider_configs.clear()
         for row in session.query(FastActionProviderConfigModel).order_by(FastActionProviderConfigModel.id).all():
             runtime.provider_configs.upsert(ProviderConfig.model_validate(row.payload))
@@ -151,6 +157,14 @@ def persist_card_binding(item: CardBinding) -> None:
 
 def delete_card_binding(item_id: str) -> None:
     _run_write(lambda session: _delete_by_pk(session, FastActionCardBindingModel, item_id))
+
+
+def persist_host_executor_definition(item: HostExecutorDefinition) -> None:
+    _run_write(lambda session: _upsert_host_executor_definition(session, item))
+
+
+def delete_host_executor_definition(item_id: str) -> None:
+    _run_write(lambda session: _delete_by_pk(session, FastActionHostExecutorDefinitionModel, item_id))
 
 
 def persist_provider_config(item: ProviderConfig) -> None:
@@ -261,7 +275,11 @@ def record_test_message(
     return serialize_test_message(row)
 
 
-def list_test_messages(session_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+def list_test_messages(
+    session_id: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
     if not is_initialized():
         return []
     assert _session_factory is not None
@@ -269,7 +287,12 @@ def list_test_messages(session_id: str | None = None, limit: int = 100) -> list[
         query = session.query(FastActionTestMessageModel)
         if session_id:
             query = query.filter(FastActionTestMessageModel.session_id == session_id)
-        rows = query.order_by(FastActionTestMessageModel.created_at.desc()).limit(limit).all()
+        rows = (
+            query.order_by(FastActionTestMessageModel.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
         return [serialize_test_message(row) for row in reversed(rows)]
 
 
@@ -333,6 +356,9 @@ def _seed_defaults(session: Session, runtime) -> None:
         item_id = _card_binding_id(item)
         if session.get(FastActionCardBindingModel, item_id) is None:
             _upsert_card_binding(session, item)
+    for item in runtime.host_executor_definitions.list():
+        if session.get(FastActionHostExecutorDefinitionModel, item.id) is None:
+            _upsert_host_executor_definition(session, item)
     for item in runtime.provider_configs.list():
         if session.get(FastActionProviderConfigModel, item.id) is None:
             _upsert_provider_config(session, item)
@@ -419,6 +445,19 @@ def _upsert_card_binding(session: Session, item: CardBinding) -> None:
             host_app=item.host_app,
             card_type=item.card_type,
             component_key=item.component_key,
+            payload=item.model_dump(mode="json"),
+            updated_at=datetime.utcnow(),
+        )
+    )
+
+
+def _upsert_host_executor_definition(session: Session, item: HostExecutorDefinition) -> None:
+    session.merge(
+        FastActionHostExecutorDefinitionModel(
+            id=item.id,
+            host_app=item.host_app,
+            kind=str(item.kind),
+            is_active=item.is_active,
             payload=item.model_dump(mode="json"),
             updated_at=datetime.utcnow(),
         )

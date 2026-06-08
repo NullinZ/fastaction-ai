@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import fastaction.interfaces.api as api_module
 from fastaction.interfaces.api import (
     router,
     set_context_policy_hook,
@@ -21,12 +22,51 @@ def test_fastaction_router_health():
     assert response.json()["engine"] == "FastAction"
 
 
+def test_fastaction_test_messages_accepts_pagination(monkeypatch):
+    captured = {}
+
+    def fake_list_test_messages(session_id=None, limit=100, offset=0):
+        captured.update({"session_id": session_id, "limit": limit, "offset": offset})
+        return [{"id": "msg_1", "session_id": session_id}]
+
+    monkeypatch.setattr(api_module, "list_test_messages", fake_list_test_messages)
+
+    response = make_client().get("/fastaction/test-messages?session_id=s1&limit=50&offset=100")
+
+    assert response.status_code == 200
+    assert response.json() == [{"id": "msg_1", "session_id": "s1"}]
+    assert captured == {"session_id": "s1", "limit": 50, "offset": 100}
+
+
 def test_fastaction_default_api_definitions_include_my_todos():
     response = make_client().get("/fastaction/api-definitions")
 
     assert response.status_code == 200
-    api_ids = {item["id"] for item in response.json()}
+    apis = response.json()
+    api_ids = {item["id"] for item in apis}
     assert "tasks.my_todos" in api_ids
+    my_todos = next(item for item in apis if item["id"] == "tasks.my_todos")
+    assert my_todos["execution"]["executor_id"] == "example.host_proxy"
+
+
+def test_fastaction_default_host_executor_definitions_are_registered():
+    response = make_client().get("/fastaction/host-executors")
+
+    assert response.status_code == 200
+    executors = response.json()
+    executor_ids = {item["id"] for item in executors}
+    assert "example.host_proxy" in executor_ids
+    assert next(item for item in executors if item["id"] == "example.host_proxy")["kind"] == "host_proxy"
+
+
+def test_fastaction_provider_model_pool_status_is_addressed_by_provider_id():
+    response = make_client().get("/fastaction/provider-configs/qwen-balanced-service/model-pool")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider_id"] == "qwen-balanced-service"
+    assert payload["inspectable"] is True
+    assert isinstance(payload["models"], list)
 
 
 def test_fastaction_default_my_todos_can_be_planned():

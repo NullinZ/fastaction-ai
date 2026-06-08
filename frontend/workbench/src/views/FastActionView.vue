@@ -10,6 +10,7 @@ import {
   getFastActionApiDefinitions,
   getFastActionCardDefinitions,
   getFastActionHealth,
+  getFastActionHostExecutors,
   getFastActionIdentityDefinitions,
   getFastActionKnowledgeDefinitions,
   getFastActionOptionSets,
@@ -60,6 +61,7 @@ const testingPlan = ref(false)
 const health = ref(null)
 const apiDefinitions = ref([])
 const cardDefinitions = ref([])
+const hostExecutorDefinitions = ref([])
 const providerConfigs = ref([])
 const identityDefinitions = ref([])
 const knowledgeDefinitions = ref([])
@@ -105,6 +107,7 @@ const activeApis = computed(() => apiDefinitions.value.filter(item => item.statu
 const selectedApi = computed(() => apiDefinitions.value.find(item => item.id === selectedApiId.value) || null)
 const selectedCardType = computed(() => apiEditor.value?.cardType || selectedApi.value?.render?.card_type || 'generic_data_card')
 const selectedCardDefinition = computed(() => cardDefinitions.value.find(card => card.card_type === selectedCardType.value) || null)
+const activeHostExecutorDefinitions = computed(() => hostExecutorDefinitions.value.filter(item => item.is_active !== false && item.status !== 'disabled'))
 const selectedProviderConfig = computed(() => providerConfigs.value.find(item => item.id === selectedProviderConfigId.value) || null)
 const selectedIdentityConfig = computed(() => identityDefinitions.value.find(item => item.id === selectedIdentityConfigId.value) || null)
 const selectedOptionSet = computed(() => optionSets.value.find(item => item.id === selectedOptionSetId.value) || null)
@@ -609,6 +612,7 @@ function makeEditor(api = null) {
     response: { data_path: '$', exposed_fields: [], sensitive_fields: [], prompt_visible_fields: [], log_redaction: [] },
     policy: { risk: 'read', requires_confirmation: false, permissions: [], idempotency: 'safe' },
     render: { card_type: 'list_card', fallback_card_type: 'generic_data_card', field_bindings: { title: '结果列表', items: '$.data.items' } },
+    execution: { mode: 'none', executor_id: null, requires_confirmation: null, input_mapping: {}, endpoints: {}, metadata: {} },
     metadata: { host_app: 'example' }
   }
   const authMode = source.request?.auth?.mode || source.request?.auth_mode || 'user_token'
@@ -629,6 +633,8 @@ function makeEditor(api = null) {
     keywordsEnText: localizedList(source.intent?.keywords, 'en').join('\n'),
     method: source.request?.method || 'GET',
     endpoint: source.request?.endpoint || '',
+    executionMode: source.execution?.mode || (source.execution?.executor_id ? 'host_executor' : 'none'),
+    executorId: source.execution?.executor_id || source.metadata?.host_execution?.id || '',
     authMode,
     authText: formatJson(source.request?.auth || makeAuthDefinition(authMode)),
     timeoutMs: source.request?.timeout_ms || 10000,
@@ -830,6 +836,14 @@ function buildApiPayload(options = {}) {
       auth,
       timeout_ms: Number(editor.timeoutMs) || 10000,
       retry: parseJsonField(editor.retryText, '重试配置', { enabled: false, max_attempts: 0 })
+    },
+    execution: {
+      mode: editor.executorId ? 'host_executor' : editor.executionMode || 'none',
+      executor_id: editor.executorId || null,
+      requires_confirmation: editor.requiresConfirmation,
+      input_mapping: {},
+      endpoints: {},
+      metadata: {}
     },
     parameters: parseJsonField(editor.parametersText, '参数 Schema'),
     response: parseJsonField(editor.responseText, '返回配置'),
@@ -1076,6 +1090,7 @@ async function loadPage(options = {}) {
       getFastActionHealth(),
       getFastActionApiDefinitions(),
       getFastActionCardDefinitions(),
+      getFastActionHostExecutors(),
       getFastActionProviderConfigs(),
       getFastActionIdentityDefinitions(),
       getFastActionKnowledgeDefinitions(),
@@ -1086,11 +1101,12 @@ async function loadPage(options = {}) {
     health.value = pickResult(results[0], null)
     apiDefinitions.value = ensureArray(pickResult(results[1], []))
     cardDefinitions.value = ensureArray(pickResult(results[2], []))
-    providerConfigs.value = ensureArray(pickResult(results[3], []))
-    identityDefinitions.value = ensureArray(pickResult(results[4], []))
-    knowledgeDefinitions.value = ensureArray(pickResult(results[5], []))
-    optionSets.value = ensureArray(pickResult(results[6], []))
-    runs.value = ensureArray(pickResult(results[7], []))
+    hostExecutorDefinitions.value = ensureArray(pickResult(results[3], []))
+    providerConfigs.value = ensureArray(pickResult(results[4], []))
+    identityDefinitions.value = ensureArray(pickResult(results[5], []))
+    knowledgeDefinitions.value = ensureArray(pickResult(results[6], []))
+    optionSets.value = ensureArray(pickResult(results[7], []))
+    runs.value = ensureArray(pickResult(results[8], []))
 
     const rejected = results.find(item => item.status === 'rejected')
     if (rejected) {
@@ -1541,6 +1557,22 @@ onMounted(async () => {
                   Endpoint
                   <button type="button" class="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-300 text-[10px] text-neutral-500 hover:border-neutral-500 hover:text-neutral-800" @click.stop.prevent @mouseenter="showHelp($event, helpTexts.endpoint)" @mousemove="moveHelp" @mouseleave="hideHelp" @focus="showHelp($event, helpTexts.endpoint)" @blur="hideHelp">i</button>
                   <input v-model.trim="apiEditor.endpoint" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
+                </label>
+                <label class="text-sm font-medium text-neutral-700">
+                  Execution Mode
+                  <select v-model="apiEditor.executionMode" :disabled="!isEditing" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
+                    <option value="none">none</option>
+                    <option value="host_executor">host_executor</option>
+                    <option value="manual">manual</option>
+                  </select>
+                </label>
+                <label class="text-sm font-medium text-neutral-700">
+                  Host Executor
+                  <select v-model="apiEditor.executorId" :disabled="!isEditing || apiEditor.executionMode === 'none'" class="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-neutral-50">
+                    <option value="">Not bound</option>
+                    <option v-for="executor in activeHostExecutorDefinitions" :key="executor.id" :value="executor.id">{{ executor.id }}</option>
+                  </select>
+                  <span class="mt-1 block text-xs text-neutral-500">{{ activeHostExecutorDefinitions.length }} registered executors. Runtime implementation is owned by the Host App.</span>
                 </label>
                 <label class="text-sm font-medium text-neutral-700">
                   Timeout ms

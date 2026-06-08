@@ -178,6 +178,7 @@ def _missing_param_details(api: APIDefinition, missing: list[str]) -> list[Missi
                 source=_string_list(definition.get("source")),
                 option_set=_string_or_none(definition.get("option_set")),
                 resolve_entity=_string_or_none(definition.get("resolve_entity")),
+                ui=_json_object(definition.get("ui")),
             )
         )
     return details
@@ -215,3 +216,7 @@ def _string_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value if str(item).strip()]
     return []
+
+
+def _json_object(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}

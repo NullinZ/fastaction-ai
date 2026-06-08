@@ -131,6 +131,7 @@ flowchart TD
 | Identity Registry | Define actor templates, role aliases, policy scope, and system prompts | 定义身份模板、角色别名、权限范围和系统提示词 |
 | Context Registry | Define resolvable business entity types and candidate providers | 定义可校准的业务实体类型和候选来源 |
 | Option Registry | Resolve enums, dictionaries, categories, and status values | 解析枚举、字典、分类和状态 |
+| Host Executor Registry | Register execution contracts and bind APIs to host-owned implementations | 注册执行契约，并把 API 绑定到宿主实现 |
 | Attachment Planner | Normalize pre-upload, inline multipart, and post-execution attachment flows | 统一前置上传、随请求提交和后置附件流程 |
 | Candidate Retriever | Select relevant API candidates by rules, keywords, embeddings, permissions, and context | 基于规则、关键词、Embedding、权限和上下文筛选候选 API |
 | Planner | Choose action and produce structured instructions | 选择动作并生成结构化指令 |
@@ -140,6 +141,37 @@ flowchart TD
 | Runs & Audit | Record retrieval, planning, confirmation, execution, and errors | 记录召回、规划、确认、执行和错误链路 |
 
 ## 5. API Definition / API 定义
+
+Execution is a contract, not hidden code inside FastAction Core:
+
+```json
+{
+  "execution": {
+    "mode": "host_executor",
+    "executor_id": "example.host_proxy",
+    "requires_confirmation": true,
+    "input_mapping": {},
+    "endpoints": {},
+    "metadata": {}
+  }
+}
+```
+
+The executor itself is registered separately:
+
+```json
+{
+  "id": "example.host_proxy",
+  "host_app": "example",
+  "kind": "host_proxy",
+  "matcher": { "api_ids": ["tasks.my_todos"] },
+  "runtime": { "implementation": "host_app" }
+}
+```
+
+FastAction stores the definition, planning result, and ExecutionResult. The Host App owns real runtime code, current user tokens, file handles, and business-side permission checks.
+
+执行是协议，不是藏在 FastAction Core 里的业务代码。FastAction 保存执行器定义、规划结果和 ExecutionResult；宿主系统负责真实执行代码、当前用户 token、文件对象和业务权限复核。
 
 ```json
 {
@@ -271,8 +303,17 @@ Attachments are a common preparation problem. FastAction should not store binary
 {
   "mode": "pre_upload",
   "file_param": "file_id",
-  "accepted_mime_types": ["image/png", "image/jpeg", "application/pdf"],
-  "max_size_mb": 20,
+  "accepted_mime_types": [
+    "image/*",
+    "application/pdf",
+    "video/*",
+    "audio/*",
+    "application/acad",
+    "application/x-acad",
+    "application/octet-stream"
+  ],
+  "accepted_extensions": [".pdf", ".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".mp3", ".wav", ".dwg", ".dxf"],
+  "max_size_mb": 30,
   "metadata_params": ["category", "description"],
   "binary_owner": "host_app",
   "transaction": {
@@ -392,6 +433,22 @@ Provider integrations are plugins. The core registry supports OpenAI-compatible 
 
 Provider 是插件。核心注册表支持 OpenAI-compatible 协议，并提供 OpenAI、Anthropic、Qwen、Doubao、Mimo、DeepSeek 等接入适配。
 
+Model-pool status is addressed by registered provider ID, not by a hard-coded vendor path:
+
+```text
+GET /fastaction/provider-configs/{provider_id}/model-pool
+```
+
+If a provider declares `model_pool` or `balanced_routing`, the Workbench can display its observable pool status. Provider-specific inspectors are plugin behavior; Qwen is one registered preset, not a special UI dependency.
+
+模型池状态按已注册的 Provider ID 查询，而不是按写死的厂商路径查询：
+
+```text
+GET /fastaction/provider-configs/{provider_id}/model-pool
+```
+
+当 Provider 声明 `model_pool` 或 `balanced_routing` 能力时，Workbench 可以展示可观测的模型池状态。厂商专属探测逻辑属于 Provider 插件能力；Qwen 只是一个已注册 preset，不是 UI 特殊依赖。
+
 ## 12. Card Protocol / 卡片协议
 
 ```json
@@ -462,6 +519,7 @@ Recommended tables:
   fastaction.api_definitions
   fastaction.card_definitions
   fastaction.card_bindings
+  fastaction.host_executor_definitions
   fastaction.provider_configs
   fastaction.identity_definitions
   fastaction.knowledge_definitions
