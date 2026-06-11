@@ -53,11 +53,17 @@ export const saveFastActionOptionSet = (payload, isUpdate = false) => {
   return jsonRequest(isUpdate ? `/option-sets/${encodeURIComponent(id)}` : '/option-sets', isUpdate ? 'PUT' : 'POST', payload)
 }
 export const deleteFastActionOptionSet = (id) => request(`/option-sets/${encodeURIComponent(id)}`, { method: 'DELETE' })
-export const getFastActionRuns = () => request('/runs')
+export const getFastActionRuns = (params = {}) => request(`/runs${queryString(params)}`)
+export const getFastActionExecutionResults = (params = {}) => request(`/execution-results${queryString(params)}`)
+export const submitFastActionExecutionResult = (payload) => jsonRequest('/execution-results', 'POST', payload)
 export const planFastActionChat = (payload) => jsonRequest('/chat', 'POST', payload)
 export const getFastActionTestMessages = (params = {}) => {
   const normalized = typeof params === 'string' ? { session_id: params } : params
   return request(`/test-messages${queryString(normalized)}`)
 }
 export const clearFastActionTestMessages = (sessionId) => request(`/test-messages?session_id=${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
-export const transcribeFastActionAudio = (formData) => request('/audio/transcriptions', { method: 'POST', body: formData })
+export const transcribeFastActionAudio = (fileOrFormData) => {
+  const formData = fileOrFormData instanceof FormData ? fileOrFormData : new FormData()
+  if (!(fileOrFormData instanceof FormData)) formData.append('file', fileOrFormData)
+  return request('/audio/transcriptions', { method: 'POST', body: formData })
+}

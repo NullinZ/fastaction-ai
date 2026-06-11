@@ -6,20 +6,26 @@ import {
   clearFastActionTestMessages,
   deleteFastActionIdentityDefinition,
   deleteFastActionProviderConfig,
+  getFastActionApiDefinitions,
+  getFastActionExecutionResults,
   getFastActionHealth,
   getFastActionHostExecutors,
   getFastActionIdentityDefinitions,
   getFastActionKnowledgeDefinitions,
+  getFastActionOptionSets,
   getFastActionProviderModelPoolStatus,
   getFastActionProviderConfigs,
   getFastActionProviderPresets,
+  getFastActionRuns,
   getFastActionTestMessages,
   planFastActionChat,
   saveFastActionIdentityDefinition,
   saveFastActionProviderConfig,
+  submitFastActionExecutionResult,
   testFastActionProviderConfig,
   transcribeFastActionAudio
 } from '@/api/fastaction'
+import { getFastActionHostExecutors as buildFastActionHostExecutors } from '@/hostExecutors'
 import { defaultFastActionTestScenario } from '@/testScenarios'
 
 const toast = useToast()
@@ -44,14 +50,18 @@ const MIN_PHONE_SCALE = 0.42
 const MAX_PHONE_SCALE = 1.5
 const FASTACTION_TEST_SESSION_KEY = 'fastaction_test_session_id'
 const FASTACTION_TEST_SPLIT_KEY = 'fastaction_test_preview_split_ratio'
+const TEST_RECORD_MESSAGE_PAGE_SIZE = 100
+const TEST_RECORD_SUPPORT_LIMIT = 500
 
 const loading = ref(true)
 const health = ref(null)
+const apiDefinitions = ref([])
 const providerConfigs = ref([])
 const providerPresets = ref([])
 const hostExecutorDefinitions = ref([])
 const identityDefinitions = ref([])
 const knowledgeDefinitions = ref([])
+const optionSets = ref([])
 const modelPoolStatus = ref(null)
 const loadError = ref('')
 
@@ -69,12 +79,24 @@ const identityDeleting = ref(false)
 
 const plannerMode = ref('hybrid')
 const noApiHitStrategy = ref('hybrid')
+const hostExecutionMode = ref('simulate')
 const plannerProviderId = ref('')
 const plannerIdentityId = ref('')
 const testInput = ref('')
 const testSending = ref(false)
+const executingInstructionIds = ref([])
 const testResult = ref(null)
-const systemSettingsCollapsed = ref(false)
+const systemSettingsCollapsed = ref(true)
+const testRecordsCollapsed = ref(false)
+const testRecordsLoading = ref(false)
+const testRecordsLoadingMore = ref(false)
+const testRecordsHasMore = ref(false)
+const testRecordsLoadedMessageCount = ref(0)
+const testRecords = ref([])
+const testRecordMessages = ref([])
+const testRecordsError = ref('')
+const selectedTestRecordId = ref('')
+const expandedTestRecordSessions = ref(new Set())
 const fileInputRef = ref(null)
 const selectedAttachments = ref([])
 const composerNotice = ref('')
@@ -86,6 +108,7 @@ const previewStageRef = ref(null)
 const phoneViewportRef = ref(null)
 const userPreviewScrollRef = ref(null)
 const debugTraceScrollRef = ref(null)
+const testRecordsScrollRef = ref(null)
 const phoneScale = ref(1)
 const previewLeftWidth = ref(null)
 const previewSplitRatio = ref(resolvePreviewSplitRatio())
@@ -94,17 +117,41 @@ const contextText = ref(formatJson(defaultFastActionTestScenario.context))
 const paramsText = ref(formatJson({}))
 const chatMessages = ref(defaultChatMessages())
 const quickQuestions = defaultFastActionTestScenario.quickQuestions
+const hostExecutors = computed(() => buildFastActionHostExecutors(hostExecutorDefinitions.value))
 let mediaRecorder = null
 let mediaStream = null
 let recordingTimer = null
 let audioChunks = []
 let previewResizeObserver = null
 let previewScrollSyncing = false
+const pendingHostExecutions = new Map()
 
 const healthState = computed(() => health.value?.status || 'unknown')
+const persistenceState = computed(() => {
+  const persistence = health.value?.persistence
+  if (!persistence) return 'unknown'
+  if (persistence.initialized) return 'ready'
+  if (persistence.enabled === false) return 'disabled'
+  return 'uninitialized'
+})
+const persistenceLabel = computed(() => ({
+  ready: '已启用',
+  disabled: '未启用',
+  uninitialized: '未初始化',
+  unknown: '未知'
+}[persistenceState.value] || '未知'))
+const persistenceStateClass = computed(() => ({
+  ready: 'border-success/20 bg-success-50 text-success-700',
+  disabled: 'border-warning/20 bg-warning-50 text-warning-800',
+  uninitialized: 'border-warning/20 bg-warning-50 text-warning-800',
+  unknown: 'border-neutral-200 bg-neutral-50 text-neutral-600'
+}[persistenceState.value] || 'border-neutral-200 bg-neutral-50 text-neutral-600'))
 const selectedProvider = computed(() => providerConfigs.value.find(item => item.id === selectedProviderId.value) || null)
 const selectedIdentity = computed(() => identityDefinitions.value.find(item => item.id === selectedIdentityId.value) || null)
 const activeProviderConfigs = computed(() => providerConfigs.value.filter(item => item.is_active !== false))
+const activeHostExecutorDefinitions = computed(() => hostExecutorDefinitions.value.filter(item => item.is_active !== false && item.status !== 'disabled'))
+const executableHostExecutorIds = computed(() => new Set(hostExecutors.value.filter(item => !item.missingImplementation).map(item => item.id)))
+const testRecordSessions = computed(() => buildTestRecordSessions(testRecords.value))
 const providerOptions = computed(() => {
   const values = new Set([
     ...providerPresets.value.map(item => item.provider).filter(Boolean),
@@ -123,7 +170,6 @@ const modelPoolServiceLabel = computed(() => {
   const service = provider.extra?.service || provider.provider || 'provider'
   return `${provider.id} · ${service}`
 })
-const activeHostExecutorDefinitions = computed(() => hostExecutorDefinitions.value.filter(item => item.is_active !== false && item.status !== 'disabled'))
 const testProviderLabel = computed(() => {
   if (plannerMode.value === 'deterministic') return '本地规则'
   return plannerProviderId.value || '未选择'
@@ -163,6 +209,18 @@ const phoneTargetWidth = computed(() => {
   }
   return Math.max(USER_PHONE_WIDTH, DEBUG_TRACE_WIDTH)
 })
+const hostExecutionOptions = computed(() => [
+  {
+    id: 'simulate',
+    label: '模拟执行',
+    description: '只记录 ExecutionResult，不调用真实业务接口。'
+  },
+  {
+    id: 'host_executor',
+    label: '真实执行',
+    description: `按已注册 Host Executor 匹配宿主实现。当前已注册 ${hostExecutorDefinitions.value.length} 个，可执行 ${hostExecutors.value.filter(item => !item.missingImplementation).length} 个。`
+  }
+])
 
 function defaultChatMessages() {
   return [
@@ -235,9 +293,17 @@ function parseJsonField(value, label) {
   }
 }
 
+function buildPreparedContext(parsedContext) {
+  return {
+    ...parsedContext,
+    test_session_id: testSessionId.value
+  }
+}
+
 function actionLabel(action) {
   return {
     invoke_api: '调用 API',
+    execution_result: '执行结果',
     answer: '直接回答',
     clarify: '需要补充信息',
     confirm: '需要确认',
@@ -273,8 +339,9 @@ function summarizePlan(result) {
 }
 
 function resultApiLabel(result) {
-  if (!result?.api) return '-'
-  return localizedResultText(result.api.name) || result.api.id || '-'
+  const apiId = result?.pending_instruction?.api_id || result?.api?.id || ''
+  const definition = apiId ? apiDefinitionById(apiId) : null
+  return localizedResultText(definition?.name) || localizedResultText(result?.api?.name) || ''
 }
 
 function resultConfidence(result) {
@@ -343,8 +410,43 @@ function missingParamLabel(item) {
   return localizedResultText(item.label) || item.name
 }
 
+function userMissingParamLabel(item) {
+  return localizedResultText(item.ui?.label) || businessizeParamName(missingParamLabel(item) || item.name)
+}
+
 function missingParamDescription(item) {
   return localizedResultText(item.description)
+}
+
+function userMissingParamDescription(item) {
+  return localizedResultText(item.ui?.description) || safeUserFacingDescription(item)
+}
+
+function userMissingParamHint(item) {
+  const hint = localizedResultText(item.ui?.hint)
+  if (hint) return hint
+  if (item.option_set) return '请选择下面的一个选项，或用文字告诉我。'
+  if (item.resolve_entity) return '请提供一个你有权限访问的对象名称。'
+  return '请用自然语言补充这项信息。'
+}
+
+function businessizeParamName(value) {
+  const text = String(value || '').trim()
+  if (!text) return '补充信息'
+  if (/^[a-zA-Z0-9_.-]+$/.test(text)) {
+    return text
+      .replace(/_id$/, '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, char => char.toUpperCase())
+  }
+  return text
+}
+
+function safeUserFacingDescription(item) {
+  const description = missingParamDescription(item)
+  if (!description) return ''
+  if (/Host App|FastAction|context\.|params|Params|JSON|API|option_set|source/i.test(description)) return ''
+  return description
 }
 
 function missingParamMeta(item) {
@@ -356,8 +458,6 @@ function missingParamMeta(item) {
 }
 
 function missingParamHint(item) {
-  const hint = localizedResultText(item.ui?.hint)
-  if (hint) return hint
   if (item.option_set) return `从字典 ${item.option_set} 选择名称或 code。`
   if (item.resolve_entity) return `需要从 ${item.resolve_entity} 候选列表中校准真实 ID。`
   const contextSources = item.source.filter(source => source.startsWith('context.'))
@@ -366,10 +466,64 @@ function missingParamHint(item) {
   return '在 Params JSON 中填写该字段后重试。'
 }
 
+function optionSetById(optionSetId) {
+  return optionSets.value.find(item => item.id === optionSetId) || null
+}
+
+function missingParamOptions(item, limit = 8) {
+  if (Array.isArray(item.ui?.options) && item.ui.options.length) {
+    return item.ui.options
+      .filter(option => option?.is_active !== false && optionDisplayValue(option))
+      .slice(0, limit)
+  }
+  if (!item.option_set) return []
+  const options = Array.isArray(optionSetById(item.option_set)?.options)
+    ? optionSetById(item.option_set).options
+    : []
+  return options
+    .filter(option => option?.is_active !== false && optionDisplayValue(option))
+    .slice(0, limit)
+}
+
+function optionDisplayLabel(option) {
+  return localizedResultText(option?.label) || option?.value || '-'
+}
+
+function optionDisplayValue(option) {
+  return option?.value || option?.code || ''
+}
+
+function applyMissingParamOption(item, option) {
+  applyMissingParamValue(item, optionDisplayValue(option), optionDisplayLabel(option))
+}
+
+function handleMissingParamSelect(item, event) {
+  const value = event?.target?.value || ''
+  if (!value) return
+  const option = missingParamOptions(item, 100).find(candidate => optionDisplayValue(candidate) === value)
+  applyMissingParamOption(item, option || { value, label: value })
+  event.target.value = ''
+}
+
+function applyMissingParamValue(item, value, label = '') {
+  if (!item?.name || value == null || value === '') return
+  let params = {}
+  try {
+    params = parseJsonField(paramsText.value, '参数 JSON')
+  } catch {
+    params = {}
+  }
+  params[item.name] = value
+  paramsText.value = formatJson(params)
+  const readable = label || value
+  toast.success('已补充一项参数', `${userMissingParamLabel(item)}：${readable}`)
+}
+
 function clarifyUserDescription(result) {
   const details = clarifyMissingDetails(result)
-  const apiId = pendingApiLabel(result)
-  return `已识别到 ${apiId}，但还缺 ${details.length || 1} 个必填参数。请补充这些信息后再次发送。`
+  const apiName = resultApiLabel(result)
+  const actionName = apiName && apiName !== '-' ? `「${apiName}」` : '这个操作'
+  return `我可以继续处理${actionName}，还需要补充下面 ${details.length || 1} 项信息。`
 }
 
 function fillMissingParamsTemplate(result) {
@@ -390,12 +544,28 @@ function pendingApiLabel(result) {
   return result?.pending_instruction?.api_id || result?.api?.id || '-'
 }
 
+function apiDefinitionById(apiId) {
+  return apiDefinitions.value.find(item => item.id === apiId) || null
+}
+
+function pendingApiDefinition(result) {
+  return apiDefinitionById(pendingApiLabel(result))
+}
+
 function pendingParams(result) {
   return result?.pending_instruction?.params || result?.params || {}
 }
 
 function pendingRiskLabel(result) {
   return result?.risk || result?.pending_instruction?.risk || result?.api?.policy?.risk_level || 'write'
+}
+
+function pendingMethod(result) {
+  return result?.api?.method || result?.api?.request?.method || '-'
+}
+
+function pendingEndpoint(result) {
+  return result?.api?.endpoint || result?.api?.request?.endpoint || '-'
 }
 
 function formatPendingValue(value) {
@@ -406,40 +576,343 @@ function formatPendingValue(value) {
 
 function traceParamSummary(result) {
   const params = pendingParams(result)
+  const apiDefinition = pendingApiDefinition(result)
   return Object.entries(params)
     .filter(([key]) => !['file'].includes(key))
-    .map(([key, value]) => `${key}: ${formatPendingValue(value)}`)
+    .map(([key, value]) => `${parameterDisplayLabel(apiDefinition, key)}: ${formatPendingValue(value)}`)
+}
+
+function parameterDefinition(apiDefinition, name) {
+  const properties = apiDefinition?.parameters?.properties
+  return properties && typeof properties === 'object' ? properties[name] || {} : {}
+}
+
+function parameterDisplayLabel(apiDefinition, name) {
+  const definition = parameterDefinition(apiDefinition, name)
+  return localizedResultText(definition.label || definition.title || definition.name || definition['x-label']) || businessizeParamName(name)
+}
+
+function parameterOptionSetId(apiDefinition, name) {
+  return parameterDefinition(apiDefinition, name).option_set || ''
+}
+
+function parameterResolveEntity(apiDefinition, name) {
+  return parameterDefinition(apiDefinition, name).resolve_entity || ''
+}
+
+function optionLabelForValue(optionSetId, value) {
+  if (!optionSetId || value == null || value === '') return ''
+  const optionSet = optionSetById(optionSetId)
+  const options = Array.isArray(optionSet?.options) ? optionSet.options : []
+  const matched = options.find((option) => {
+    const candidates = [
+      option?.value,
+      option?.code,
+      localizedResultText(option?.label),
+      localizedResultText(option?.name)
+    ].filter(item => item != null && item !== '').map(item => String(item))
+    return candidates.includes(String(value))
+  })
+  return matched ? optionDisplayLabel(matched) : ''
+}
+
+function pendingHostExecutionContext(result) {
+  const key = pendingExecutionKey(result)
+  const execution = key ? pendingHostExecutions.get(key) : null
+  return execution?.context && typeof execution.context === 'object' ? execution.context : {}
+}
+
+function entityCandidatesFromContext(context = {}, entity = '') {
+  const plural = entity.endsWith('s') ? entity : `${entity}s`
+  const keys = [
+    `available_${plural}`,
+    `${plural}`,
+    `available_${entity}_list`,
+    `${entity}_list`
+  ]
+  const candidates = []
+  for (const key of keys) {
+    if (Array.isArray(context[key])) candidates.push(...context[key])
+  }
+  const availableEntities = context.available_entities
+  if (availableEntities && typeof availableEntities === 'object') {
+    if (Array.isArray(availableEntities[entity])) candidates.push(...availableEntities[entity])
+    if (Array.isArray(availableEntities[plural])) candidates.push(...availableEntities[plural])
+  }
+  for (const key of [`current_${entity}`, entity]) {
+    const item = context[key]
+    if (item && typeof item === 'object') candidates.push(item)
+  }
+  return candidates
+}
+
+function entityLabelForValue(context, entity, value) {
+  if (!entity || value == null || value === '') return ''
+  const normalizedValue = String(value)
+  const candidates = entityCandidatesFromContext(context, entity)
+  const matched = candidates.find((item) => {
+    if (!item || typeof item !== 'object') return false
+    const aliases = Array.isArray(item.aliases) ? item.aliases : []
+    return [item.id, item.value, item.code, item.name, item.display_name, item.title, ...aliases]
+      .filter(candidate => candidate != null && candidate !== '')
+      .map(candidate => String(candidate))
+      .includes(normalizedValue)
+  })
+  if (!matched) return ''
+  return localizedResultText(matched.name || matched.display_name || matched.title || matched.label) || ''
+}
+
+function formatUserParamValue(apiDefinition, name, value, result = null) {
+  const entityLabel = entityLabelForValue(
+    pendingHostExecutionContext(result),
+    parameterResolveEntity(apiDefinition, name),
+    value
+  )
+  if (entityLabel) return entityLabel
+  const optionLabel = optionLabelForValue(parameterOptionSetId(apiDefinition, name), value)
+  if (optionLabel) return optionLabel
+  if (Array.isArray(value)) return `${value.length} 项`
+  if (value && typeof value === 'object') {
+    return localizedResultText(value.name || value.label) || value.display_name || value.title || '已选择'
+  }
+  return formatPendingValue(value)
+}
+
+function formatAttachmentSummary(files = []) {
+  if (!files.length) return '未选择附件'
+  if (files.length === 1) return files[0]?.name || '1 个附件'
+  const names = files.map(item => item?.name).filter(Boolean).slice(0, 2)
+  return `${files.length} 个附件${names.length ? `：${names.join('、')}${files.length > names.length ? ' 等' : ''}` : ''}`
 }
 
 function confirmUserTitle(result) {
   const apiName = resultApiLabel(result)
-  return apiName && apiName !== '-' ? `确认${apiName}` : '操作待确认'
+  return apiName ? `确认${apiName}` : '确认这项操作'
 }
 
 function confirmUserDescription(result) {
-  const apiId = pendingApiLabel(result)
-  const risk = pendingRiskLabel(result)
-  const executorCount = activeHostExecutorDefinitions.value.length
-  return `这一步会执行已注册能力 ${apiId}，风险级别为 ${risk}。当前已注册 ${executorCount} 个 Host Executor 定义；开源测试台不会直接调用你的业务系统，只会记录一次模拟 ExecutionResult。真实执行由 Host App 实现并回写结果。`
+  const executor = resolveHostExecutor(result)
+  if (executor) {
+    return '请确认下面的信息。确认后，系统会把附件提交到对应业务系统。'
+  }
+  if (hostExecutionMode.value === 'host_executor') {
+    return '当前能力还没有接入可执行的提交通道，请先在注册配置中完成执行器绑定。'
+  }
+  return '请确认下面的信息。当前为模拟执行，不会写入真实业务系统。'
 }
 
 function confirmUserDetails(result) {
   const params = pendingParams(result)
-  return Object.entries(params)
+  const apiDefinition = pendingApiDefinition(result)
+  const details = Object.entries(params)
     .filter(([key]) => !['file'].includes(key))
     .slice(0, 3)
-    .map(([key, value]) => ({ label: key, value: formatPendingValue(value) }))
+    .map(([key, value]) => ({
+      label: parameterDisplayLabel(apiDefinition, key),
+      value: formatUserParamValue(apiDefinition, key, value, result)
+    }))
+  const files = pendingHostExecutionFiles(result)
+  if (files.length) {
+    details.push({ label: '附件', value: formatAttachmentSummary(files) })
+  }
+  return details
 }
 
 function cancelPendingAction() {
-  appendMessage('assistant', '已取消这个待确认操作，未执行任何业务 API。')
+  appendMessage('assistant', '已取消，未提交。')
 }
 
-function acknowledgePendingAction(result) {
-  appendMessage(
-    'assistant',
-    `测试台已收到确认：${pendingApiLabel(result)}。这里不会直接调用业务 API，真实执行应由 Host App 使用用户 token 执行 pending_instruction 后回写 Execution Result。`
-  )
+function isRealHostExecution(result) {
+  return Boolean(resolveHostExecutor(result))
+}
+
+function confirmActionButtonLabel(result) {
+  if (isPendingExecutionBusy(result)) return '执行中'
+  if (isRealHostExecution(result)) return '确认执行'
+  return '确认执行'
+}
+
+function executionProgressMessage(result, executor) {
+  const apiName = resultApiLabel(result)
+  if (executor && apiName) return `已确认，正在${apiName}...`
+  if (executor) return '已确认，正在提交...'
+  if (hostExecutionMode.value === 'host_executor') return '已确认，正在检查提交通道...'
+  return '已确认，正在记录模拟结果...'
+}
+
+function userFacingExecutionError(error, result) {
+  const apiName = resultApiLabel(result) || '操作'
+  const status = Number(error?.status || error?.response?.status)
+  if (status === 401 || status === 403) return `${apiName}没有完成：当前账号没有权限或登录状态已失效，请重新登录后再试。`
+  if (status === 404) return `${apiName}没有完成：业务提交通道暂时不可用，请联系管理员检查接口注册和执行器配置。`
+  return `${apiName}没有完成：系统暂时无法提交，请稍后重试。`
+}
+
+function buildExecutionTraceResult(sourceResult, error, params, files, startedAt) {
+  return {
+    type: 'execution_result',
+    action: 'execution_result',
+    instruction_id: sourceResult?.instruction_id,
+    run_id: sourceResult?.run_id,
+    confidence: sourceResult?.confidence ?? 0,
+    api: sourceResult?.api || null,
+    provider: sourceResult?.provider || null,
+    params,
+    reply: {
+      zh: userFacingExecutionError(error, sourceResult),
+      en: userFacingExecutionError(error, sourceResult)
+    },
+    execution: {
+      status: 'error',
+      duration_ms: Date.now() - startedAt,
+      attachment_count: files.length,
+      error: error?.userMessage || error?.message || String(error || '执行失败')
+    }
+  }
+}
+
+function resolveHostExecutor(result) {
+  if (hostExecutionMode.value !== 'host_executor') return null
+  const apiDefinition = pendingApiDefinition(result)
+  if (!apiDefinition) return null
+  return hostExecutors.value.find(item => item.supports?.(apiDefinition)) || null
+}
+
+function pendingExecutionKey(result) {
+  return result?.instruction_id || result?.run_id || result?.pending_instruction?.api_id || ''
+}
+
+function pendingHostExecutionFiles(result) {
+  const key = pendingExecutionKey(result)
+  const execution = key ? pendingHostExecutions.get(key) : null
+  return Array.isArray(execution?.attachments) ? execution.attachments.filter(item => item.file) : []
+}
+
+function isPendingExecutionBusy(result) {
+  const key = pendingExecutionKey(result)
+  return Boolean(key && executingInstructionIds.value.includes(key))
+}
+
+function setPendingExecutionBusy(result, busy) {
+  const key = pendingExecutionKey(result)
+  if (!key) return
+  if (busy) {
+    executingInstructionIds.value = Array.from(new Set([...executingInstructionIds.value, key]))
+  } else {
+    executingInstructionIds.value = executingInstructionIds.value.filter(item => item !== key)
+  }
+}
+
+function registerPendingHostExecution(result, attachments, context, sourceText) {
+  const key = pendingExecutionKey(result)
+  if (!key || result?.action !== 'confirm') return
+  pendingHostExecutions.set(key, {
+    result,
+    attachments: attachments.filter(item => item.file),
+    context,
+    sourceText,
+    createdAt: Date.now()
+  })
+}
+
+async function executeConfirmedAction(result) {
+  if (!result || isPendingExecutionBusy(result)) return
+  const key = pendingExecutionKey(result)
+  const execution = key ? pendingHostExecutions.get(key) : null
+  const files = Array.isArray(execution?.attachments) ? execution.attachments.map(item => item.file).filter(Boolean) : []
+  const params = pendingParams(result)
+  const startedAt = Date.now()
+  const executor = resolveHostExecutor(result)
+  setPendingExecutionBusy(result, true)
+  appendMessage('assistant', executionProgressMessage(result, executor))
+  try {
+    if (executor) {
+      const payload = await executor.execute({
+        result,
+        execution,
+        files,
+        params,
+        apiDefinition: pendingApiDefinition(result),
+        startedAt,
+        helpers: {
+          pendingApiLabel,
+          pendingMethod,
+          pendingEndpoint
+        }
+      })
+      const { user_message: userMessage, ...executionPayload } = payload
+      try {
+        await submitFastActionExecutionResult(executionPayload)
+      } catch (auditError) {
+        appendMessage('assistant', `${userMessage || '业务执行已完成。'} 但执行记录回写失败：${auditError.userMessage || auditError.message || '审计服务不可用'}`)
+        pendingHostExecutions.delete(key)
+        return
+      }
+      appendMessage('assistant', userMessage || '已提交完成。')
+    } else if (hostExecutionMode.value === 'host_executor') {
+      throw new Error('当前 API 没有匹配到可用的 Host Executor。请先完成宿主执行器接入，或切换为模拟执行。')
+    } else {
+      await recordSimulatedExecutionResult(result, files, params, startedAt)
+    }
+    pendingHostExecutions.delete(key)
+  } catch (error) {
+    await submitFastActionExecutionResult({
+      run_id: result.run_id,
+      instruction_id: result.instruction_id,
+      api_id: pendingApiLabel(result),
+      status: 'error',
+      duration_ms: Date.now() - startedAt,
+      request_summary: {
+        params,
+        attachment_count: files.length
+      },
+      response_summary: {},
+      data: null,
+      error: error.userMessage || error.message || '模拟执行失败',
+      render: { card_type: 'result_card', state: 'error', props: {} }
+    }).catch(() => {})
+    appendMessage('assistant', userFacingExecutionError(error, result), buildExecutionTraceResult(result, error, params, files, startedAt))
+  } finally {
+    setPendingExecutionBusy(result, false)
+    refreshTestRecords({ silent: true })
+  }
+}
+
+async function recordSimulatedExecutionResult(result, files, params, startedAt) {
+  const durationMs = Date.now() - startedAt
+  await submitFastActionExecutionResult({
+    run_id: result.run_id,
+    instruction_id: result.instruction_id,
+    api_id: pendingApiLabel(result),
+    status: 'success',
+    duration_ms: durationMs,
+    request_summary: {
+      executor: 'fastaction_test_bench_simulator',
+      method: pendingMethod(result),
+      endpoint: pendingEndpoint(result),
+      params,
+      attachment_count: files.length
+    },
+    response_summary: {
+      simulated: true,
+      status: 'accepted'
+    },
+    data: {
+      simulated: true,
+      params,
+      attachments: files.map(file => ({ name: file.name, size: file.size, type: file.type }))
+    },
+    render: {
+      card_type: 'result_card',
+      state: 'success',
+      props: {
+        title: '模拟执行结果',
+        status: 'success',
+        message: '测试台已记录模拟结果。'
+      }
+    }
+  })
+  appendMessage('assistant', '模拟执行完成。当前没有调用真实业务接口。')
 }
 
 function formatFileSize(size) {
@@ -509,21 +982,359 @@ function normalizePersistedAttachment(item) {
   }
 }
 
+function restoreChatMessagesFromRows(rows = []) {
+  const restored = Array.isArray(rows)
+    ? rows.map(normalizePersistedMessage).filter(item => item.text || item.attachments.length)
+    : []
+  revokeAttachments(chatMessages.value.flatMap(message => message.attachments || []))
+  revokeAttachments(selectedAttachments.value)
+  chatMessages.value = restored.length ? [...defaultChatMessages(), ...restored] : defaultChatMessages()
+  const lastResult = [...restored].reverse().find(item => item.result)?.result || null
+  testResult.value = lastResult
+  pendingHostExecutions.clear()
+  selectedAttachments.value = []
+  composerNotice.value = ''
+  scrollPreviewContainersToBottom()
+  return restored
+}
+
 async function loadPersistedTestMessages() {
   try {
     const rows = await getFastActionTestMessages({
       session_id: testSessionId.value,
       limit: 100
     })
-    const restored = Array.isArray(rows) ? rows.map(normalizePersistedMessage).filter(item => item.text || item.attachments.length) : []
-    if (!restored.length) return
-    revokeAttachments(chatMessages.value.flatMap(message => message.attachments || []))
-    chatMessages.value = [...defaultChatMessages(), ...restored]
-    const lastResult = [...restored].reverse().find(item => item.result)?.result
-    if (lastResult) testResult.value = lastResult
+    if (!Array.isArray(rows) || !rows.length) return
+    restoreChatMessagesFromRows(rows)
+    selectedTestRecordId.value = ''
   } catch (error) {
     loadError.value = error.userMessage || error.message || 'FastAction 测试会话历史加载失败'
   }
+}
+
+function buildExecutionResultByRunId(items = []) {
+  const lookup = new Map()
+  for (const item of Array.isArray(items) ? items : []) {
+    const runId = item?.run_id
+    if (runId && !lookup.has(runId)) lookup.set(runId, item)
+  }
+  return lookup
+}
+
+function buildRunById(items = []) {
+  const lookup = new Map()
+  for (const item of Array.isArray(items) ? items : []) {
+    if (item?.id) lookup.set(item.id, item)
+  }
+  return lookup
+}
+
+function buildTestRecords(messages = [], runs = [], executionResults = []) {
+  const runById = buildRunById(runs)
+  const executionByRunId = buildExecutionResultByRunId(executionResults)
+  const sessionGroups = new Map()
+  const rows = [...(Array.isArray(messages) ? messages : [])].sort((a, b) =>
+    String(a?.created_at || '').localeCompare(String(b?.created_at || ''))
+  )
+  for (const row of rows) {
+    const sessionId = String(row?.session_id || '').trim()
+    if (!sessionId) continue
+    if (!sessionGroups.has(sessionId)) sessionGroups.set(sessionId, [])
+    sessionGroups.get(sessionId).push(row)
+  }
+
+  const records = []
+  for (const [sessionId, sessionRows] of sessionGroups.entries()) {
+    let record = null
+    for (const row of sessionRows) {
+      if (!record || row.role === 'user') {
+        if (record) records.push(record)
+        record = createTestRecord(sessionId, row)
+      } else {
+        updateTestRecordFromRow(record, row)
+      }
+    }
+    if (record) records.push(record)
+  }
+
+  return records
+    .map((record) => {
+      const run = record.run_id ? runById.get(record.run_id) : null
+      const execution = record.run_id ? executionByRunId.get(record.run_id) : null
+      return {
+        ...record,
+        action: record.action || run?.instruction?.action || run?.status || '',
+        api_id: record.api_id || run?.selected_api_id || '',
+        confidence: record.confidence ?? run?.confidence ?? null,
+        execution_status: execution?.status || '',
+        execution_error: execution?.error || '',
+        title: record.first_user_text || record.last_content || record.session_id
+      }
+    })
+    .sort((a, b) => String(b.last_created_at || '').localeCompare(String(a.last_created_at || '')))
+}
+
+function createTestRecord(sessionId, row) {
+  const recordId = row?.id || `${sessionId}_${row?.created_at || Math.random().toString(16).slice(2)}`
+  const record = {
+    record_id: recordId,
+    session_id: sessionId,
+    conversation_id: row?.conversation_id || '',
+    message_count: 0,
+    attachment_count: 0,
+    first_user_text: '',
+    last_content: '',
+    last_created_at: '',
+    run_id: '',
+    action: '',
+    api_id: '',
+    confidence: null,
+    execution_status: '',
+    messages: []
+  }
+  updateTestRecordFromRow(record, row)
+  return record
+}
+
+function updateTestRecordFromRow(record, row) {
+  if (!record || !row) return
+  record.messages.push(row)
+  record.message_count += 1
+  record.attachment_count += Array.isArray(row.attachments) ? row.attachments.length : 0
+  if (!record.first_user_text && row.role === 'user') record.first_user_text = row.content || ''
+  if (!record.last_created_at || String(row.created_at || '') >= String(record.last_created_at || '')) {
+    record.last_created_at = row.created_at || ''
+    record.last_content = row.content || ''
+  }
+  const result = row.result && typeof row.result === 'object' ? row.result : null
+  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  const runId = result?.run_id || metadata.run_id || ''
+  if (runId) {
+    record.run_id = runId
+    record.action = result?.action || metadata.action || record.action
+    record.api_id = result?.api?.id || result?.pending_instruction?.api_id || metadata.selected_api_id || metadata.pending_api_id || record.api_id
+    record.confidence = result?.confidence ?? record.confidence
+  }
+}
+
+function buildTestRecordSessions(records = []) {
+  const groups = new Map()
+  for (const record of Array.isArray(records) ? records : []) {
+    const sessionId = String(record?.session_id || '').trim()
+    if (!sessionId) continue
+    if (!groups.has(sessionId)) {
+      groups.set(sessionId, {
+        session_id: sessionId,
+        conversation_id: record.conversation_id || '',
+        record_count: 0,
+        message_count: 0,
+        attachment_count: 0,
+        first_created_at: '',
+        last_created_at: '',
+        title: '',
+        action: '',
+        api_id: '',
+        run_id: '',
+        confidence: null,
+        execution_status: '',
+        execution_error: '',
+        records: []
+      })
+    }
+    const session = groups.get(sessionId)
+    session.records.push(record)
+    session.record_count += 1
+    session.message_count += Number(record.message_count || 0)
+    session.attachment_count += Number(record.attachment_count || 0)
+    if (!session.first_created_at || String(record.last_created_at || '') < String(session.first_created_at || '')) {
+      session.first_created_at = record.last_created_at || ''
+    }
+    if (!session.last_created_at || String(record.last_created_at || '') >= String(session.last_created_at || '')) {
+      session.last_created_at = record.last_created_at || ''
+      session.title = record.title || record.session_id
+      session.action = record.action || ''
+      session.api_id = record.api_id || ''
+      session.run_id = record.run_id || ''
+      session.confidence = record.confidence ?? null
+      session.execution_status = record.execution_status || ''
+      session.execution_error = record.execution_error || ''
+    }
+  }
+  return Array.from(groups.values())
+    .map((session) => ({
+      ...session,
+      records: [...session.records].sort((a, b) => String(b.last_created_at || '').localeCompare(String(a.last_created_at || '')))
+    }))
+    .sort((a, b) => String(b.last_created_at || '').localeCompare(String(a.last_created_at || '')))
+}
+
+function isTestRecordSessionExpanded(sessionId) {
+  return expandedTestRecordSessions.value.has(sessionId)
+}
+
+function toggleTestRecordSession(sessionId) {
+  const next = new Set(expandedTestRecordSessions.value)
+  if (next.has(sessionId)) {
+    next.delete(sessionId)
+  } else {
+    next.add(sessionId)
+  }
+  expandedTestRecordSessions.value = next
+}
+
+function ensureExpandedTestRecordSession(sessions = testRecordSessions.value) {
+  const validSessionIds = new Set((Array.isArray(sessions) ? sessions : []).map(item => item.session_id))
+  const next = new Set([...expandedTestRecordSessions.value].filter(sessionId => validSessionIds.has(sessionId)))
+  if (!next.size && sessions?.[0]?.session_id) next.add(sessions[0].session_id)
+  expandedTestRecordSessions.value = next
+}
+
+function testMessageIdentity(row) {
+  return row?.id || [
+    row?.session_id || '',
+    row?.role || '',
+    row?.created_at || '',
+    row?.content || ''
+  ].join('|')
+}
+
+function mergeTestRecordMessages(existing = [], incoming = []) {
+  const lookup = new Map()
+  for (const row of [...existing, ...incoming]) {
+    const key = testMessageIdentity(row)
+    if (key) lookup.set(key, row)
+  }
+  return Array.from(lookup.values())
+}
+
+function resetTestRecordsState(message = '') {
+  testRecords.value = []
+  testRecordMessages.value = []
+  testRecordsLoadedMessageCount.value = 0
+  testRecordsHasMore.value = false
+  expandedTestRecordSessions.value = new Set()
+  if (message) testRecordsError.value = message
+}
+
+async function loadTestRecordsPage({ reset = false, silent = false } = {}) {
+  if (testRecordsLoading.value || testRecordsLoadingMore.value) return
+  const initialLoad = reset || !testRecordMessages.value.length
+  try {
+    if (initialLoad) {
+      testRecordsLoading.value = true
+    } else {
+      testRecordsLoadingMore.value = true
+    }
+    testRecordsError.value = ''
+    if (['disabled', 'uninitialized'].includes(persistenceState.value)) {
+      const message = persistenceState.value === 'disabled'
+        ? 'FastAction 持久化未启用，测试记录不会写入数据库。'
+        : 'FastAction 持久化未初始化，请先确认 AI Service 已连接数据库并完成启动。'
+      resetTestRecordsState(message)
+      if (!silent) toast.warning('测试记录不可用', message)
+      return
+    }
+    const offset = initialLoad ? 0 : testRecordsLoadedMessageCount.value
+    const results = await Promise.allSettled([
+      getFastActionTestMessages({ limit: TEST_RECORD_MESSAGE_PAGE_SIZE, offset }),
+      getFastActionRuns({ limit: TEST_RECORD_SUPPORT_LIMIT }),
+      getFastActionExecutionResults({ limit: TEST_RECORD_SUPPORT_LIMIT })
+    ])
+
+    if (results[0].status === 'rejected') {
+      const message = results[0].reason?.userMessage || results[0].reason?.message || '测试记录加载失败'
+      testRecordsError.value = message
+      if (!silent) toast.error('测试记录加载失败', message)
+      return
+    }
+    const rejectedSupport = results.slice(1).find(item => item.status === 'rejected')
+    if (rejectedSupport) {
+      testRecordsError.value = rejectedSupport.reason?.userMessage || rejectedSupport.reason?.message || '测试记录辅助信息加载失败'
+      if (!silent) toast.warning('测试记录辅助信息加载失败', testRecordsError.value)
+    }
+    const messages = mergeTestRecordMessages(
+      initialLoad ? [] : testRecordMessages.value,
+      ensureArray(pickResult(results[0], []))
+    )
+    const runs = ensureArray(pickResult(results[1], []))
+    const executionResults = ensureArray(pickResult(results[2], []))
+    const loadedCount = ensureArray(pickResult(results[0], [])).length
+    testRecordMessages.value = messages
+    testRecordsLoadedMessageCount.value = offset + loadedCount
+    testRecordsHasMore.value = loadedCount === TEST_RECORD_MESSAGE_PAGE_SIZE
+    testRecords.value = buildTestRecords(messages, runs, executionResults)
+    ensureExpandedTestRecordSession(buildTestRecordSessions(testRecords.value))
+  } finally {
+    if (initialLoad) {
+      testRecordsLoading.value = false
+    } else {
+      testRecordsLoadingMore.value = false
+    }
+  }
+}
+
+async function refreshTestRecords({ silent = false } = {}) {
+  await loadTestRecordsPage({ reset: true, silent })
+}
+
+async function loadMoreTestRecords() {
+  if (!testRecordsHasMore.value || testRecordsLoading.value || testRecordsLoadingMore.value) return
+  await loadTestRecordsPage({ reset: false, silent: true })
+}
+
+function handleTestRecordsScroll(event) {
+  const element = event?.target || testRecordsScrollRef.value
+  if (!element || !testRecordsHasMore.value) return
+  const remaining = element.scrollHeight - element.scrollTop - element.clientHeight
+  if (remaining <= 48) loadMoreTestRecords()
+}
+
+async function loadTestRecord(record) {
+  if (!record?.session_id) return
+  try {
+    testRecordsLoading.value = true
+    const rows = Array.isArray(record.messages) && record.messages.length
+      ? record.messages
+      : await getFastActionTestMessages({
+          session_id: record.session_id,
+          limit: 100
+        })
+    const restored = restoreChatMessagesFromRows(rows)
+    testSessionId.value = record.session_id
+    selectedTestRecordId.value = record.record_id || record.session_id
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(FASTACTION_TEST_SESSION_KEY, record.session_id)
+    }
+    toast.success('测试记录已加载', `${restored.length} 条消息已恢复到模拟器`)
+  } catch (error) {
+    toast.error('加载测试记录失败', error.userMessage || error.message || '无法恢复测试记录')
+  } finally {
+    testRecordsLoading.value = false
+  }
+}
+
+function testRecordStatusLabel(record) {
+  if (record.execution_status === 'success') return '执行成功'
+  if (record.execution_status === 'error') return '执行失败'
+  if (record.execution_status) return record.execution_status
+  if (record.action) return actionLabel(record.action)
+  return '已记录'
+}
+
+function testRecordStatusClass(record) {
+  if (record.execution_status === 'success') return 'bg-success-50 text-success-700'
+  if (record.execution_status === 'error') return 'bg-danger-50 text-danger-700'
+  if (record.action === 'confirm') return 'bg-warning-50 text-warning-700'
+  if (record.action === 'clarify') return 'bg-info-50 text-info-700'
+  return 'bg-neutral-100 text-neutral-600'
+}
+
+function testRecordMeta(record) {
+  return [
+    record.api_id || '未命中 API',
+    record.run_id ? `run ${record.run_id.slice(0, 12)}` : '',
+    record.confidence != null ? `confidence ${Number(record.confidence).toFixed(2)}` : ''
+  ].filter(Boolean).join(' · ')
 }
 
 async function clearChat() {
@@ -535,6 +1346,7 @@ async function clearChat() {
   testResult.value = null
   try {
     await clearFastActionTestMessages(testSessionId.value)
+    await refreshTestRecords({ silent: true })
   } catch (error) {
     toast.warning('测试会话已本地清空', error.userMessage || error.message || '服务端历史清理失败')
   }
@@ -602,6 +1414,7 @@ function normalizeAttachment(file, index = 0, kind = attachmentFileKind(file)) {
     type: file.type || 'application/octet-stream',
     size: file.size || 0,
     kind: kind || 'file',
+    file,
     previewUrl
   }
 }
@@ -751,6 +1564,22 @@ function makeProviderEditor(provider = null) {
   }
 }
 
+function defaultProviderTemplate() {
+  return modelPoolProvider.value || providerPresets.value[0] || {
+    id: '',
+    type: 'llm',
+    provider: providerOptions.value[0] || 'openai_compatible',
+    base_url: '',
+    model: '',
+    capabilities: ['chat', 'json_schema'],
+    routing: { tasks: ['planning'], priority: 10 },
+    credentials: { mode: 'server_secret', secret_ref: '', api_key: null },
+    default_headers: {},
+    extra: {},
+    is_active: true
+  }
+}
+
 function buildProviderPayload() {
   const editor = providerEditor.value
   if (!editor) throw new Error('没有可保存的 Provider')
@@ -777,22 +1606,6 @@ function buildProviderPayload() {
     default_headers: parseJsonField(editor.defaultHeadersText, '默认请求头'),
     extra: parseJsonField(editor.extraText, '扩展配置'),
     is_active: Boolean(editor.isActive)
-  }
-}
-
-function defaultProviderTemplate() {
-  return modelPoolProvider.value || providerPresets.value[0] || {
-    id: '',
-    type: 'llm',
-    provider: providerOptions.value[0] || 'openai_compatible',
-    base_url: '',
-    model: '',
-    capabilities: ['chat', 'json_schema'],
-    routing: { tasks: ['planning'], priority: 10 },
-    credentials: { mode: 'server_secret', secret_ref: '', api_key: null },
-    default_headers: {},
-    extra: {},
-    is_active: true
   }
 }
 
@@ -990,10 +1803,7 @@ async function sendTestMessage() {
   try {
     const parsedContext = parseJsonField(contextText.value, '上下文 JSON')
     const attachmentContext = buildAttachmentContext(attachmentsForSend)
-    const baseContext = {
-      ...parsedContext,
-      test_session_id: testSessionId.value
-    }
+    const baseContext = buildPreparedContext(parsedContext)
     const context = attachmentContext.length
       ? {
           ...baseContext,
@@ -1019,6 +1829,7 @@ async function sendTestMessage() {
       identity_id: plannerIdentityId.value || null
     })
     testResult.value = result
+    registerPendingHostExecution(result, attachmentsForSend, context, text)
     appendMessage('assistant', summarizePlan(result), result)
   } catch (error) {
     const message = error.userMessage || error.message || 'FastAction 测试失败'
@@ -1026,6 +1837,7 @@ async function sendTestMessage() {
     toast.error('测试失败', message)
   } finally {
     testSending.value = false
+    refreshTestRecords({ silent: true })
   }
 }
 
@@ -1035,18 +1847,22 @@ async function loadSettings() {
     loadError.value = ''
     const results = await Promise.allSettled([
       getFastActionHealth(),
+      getFastActionApiDefinitions(),
+      getFastActionHostExecutors(),
       getFastActionProviderConfigs(),
       getFastActionProviderPresets(),
-      getFastActionHostExecutors(),
       getFastActionIdentityDefinitions(),
-      getFastActionKnowledgeDefinitions()
+      getFastActionKnowledgeDefinitions(),
+      getFastActionOptionSets()
     ])
     health.value = pickResult(results[0], null)
-    providerConfigs.value = ensureArray(pickResult(results[1], []))
-    providerPresets.value = ensureArray(pickResult(results[2], []))
-    hostExecutorDefinitions.value = ensureArray(pickResult(results[3], []))
-    identityDefinitions.value = ensureArray(pickResult(results[4], []))
-    knowledgeDefinitions.value = ensureArray(pickResult(results[5], []))
+    apiDefinitions.value = ensureArray(pickResult(results[1], []))
+    hostExecutorDefinitions.value = ensureArray(pickResult(results[2], []))
+    providerConfigs.value = ensureArray(pickResult(results[3], []))
+    providerPresets.value = ensureArray(pickResult(results[4], []))
+    identityDefinitions.value = ensureArray(pickResult(results[5], []))
+    knowledgeDefinitions.value = ensureArray(pickResult(results[6], []))
+    optionSets.value = ensureArray(pickResult(results[7], []))
     modelPoolStatus.value = await loadModelPoolStatus(pickModelPoolProvider(providerConfigs.value))
     const rejected = results.find(item => item.status === 'rejected')
     if (rejected) {
@@ -1071,6 +1887,10 @@ function pickResult(result, fallback) {
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : []
+}
+
+function hostExecutorRuntimeStatus(executor) {
+  return executableHostExecutorIds.value.has(executor?.id) ? '可执行' : '未接入实现'
 }
 
 function providerCapabilities(provider) {
@@ -1109,6 +1929,18 @@ async function loadModelPoolStatus(provider) {
 
 function formatNumber(value) {
   return new Intl.NumberFormat('zh-CN').format(Number(value || 0))
+}
+
+function formatDate(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
 }
 
 function modelStatus(model) {
@@ -1207,6 +2039,7 @@ onMounted(async () => {
   voiceSupported.value = hasVoiceRecordingSupport()
   await loadSettings()
   await loadPersistedTestMessages()
+  await refreshTestRecords({ silent: true })
   await nextTick()
   setupPhoneScaleObserver()
   scrollPreviewContainersToBottom()
@@ -1239,6 +2072,10 @@ onBeforeUnmount(() => {
             <div class="min-w-[116px] flex-1 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2">
               <p class="text-xs text-neutral-500">引擎</p>
               <p class="text-sm font-semibold" :class="healthState === 'healthy' ? 'text-success-700' : 'text-warning-700'">{{ healthState }}</p>
+            </div>
+            <div class="min-w-[116px] flex-1 rounded-lg border px-2.5 py-2" :class="persistenceStateClass">
+              <p class="text-xs opacity-80">记录</p>
+              <p class="text-sm font-semibold">{{ persistenceLabel }}</p>
             </div>
             <div class="min-w-[116px] flex-1 rounded-lg border border-warning/20 bg-warning-50 px-2.5 py-2">
               <p class="text-xs text-warning-700">Provider</p>
@@ -1339,10 +2176,11 @@ onBeforeUnmount(() => {
                         </button>
                         <button
                           type="button"
-                          class="rounded-full bg-neutral-950 px-2 py-1.5 text-xs font-medium text-white"
-                          @click="acknowledgePendingAction(message.result)"
+                          class="rounded-full bg-neutral-950 px-2 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                          :disabled="isPendingExecutionBusy(message.result)"
+                          @click="executeConfirmedAction(message.result)"
                         >
-                          确认执行
+                          {{ confirmActionButtonLabel(message.result) }}
                         </button>
                       </div>
                     </div>
@@ -1352,7 +2190,7 @@ onBeforeUnmount(() => {
                     >
                       <div class="flex flex-wrap items-center gap-2">
                         <span class="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-info-700">待补充</span>
-                        <span class="min-w-0 break-words text-sm font-semibold text-neutral-900">缺少必要参数</span>
+                        <span class="min-w-0 break-words text-sm font-semibold text-neutral-900">还需要补充信息</span>
                       </div>
                       <p class="mt-2 break-words text-sm leading-6 text-neutral-700">{{ clarifyUserDescription(message.result) }}</p>
                       <div class="mt-3 space-y-2">
@@ -1361,22 +2199,38 @@ onBeforeUnmount(() => {
                           :key="item.name"
                           class="rounded-xl bg-white/80 p-2.5"
                         >
-                          <div class="flex flex-wrap items-center gap-2">
-                            <span class="font-semibold text-neutral-900">{{ missingParamLabel(item) }}</span>
-                            <span class="font-mono text-xs text-neutral-500">{{ item.name }}</span>
-                            <span class="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-600">{{ missingParamMeta(item) }}</span>
+                          <div class="flex items-start justify-between gap-2">
+                            <div class="min-w-0">
+                              <p class="break-words text-sm font-semibold text-neutral-900">{{ userMissingParamLabel(item) }}</p>
+                              <p v-if="userMissingParamDescription(item)" class="mt-1 break-words text-xs leading-5 text-neutral-600">{{ userMissingParamDescription(item) }}</p>
+                            </div>
+                            <span v-if="missingParamOptions(item).length" class="shrink-0 rounded-full bg-info-50 px-2 py-0.5 text-[11px] font-medium text-info-700">可选</span>
                           </div>
-                          <p v-if="missingParamDescription(item)" class="mt-1 text-xs leading-5 text-neutral-600">{{ missingParamDescription(item) }}</p>
-                          <p class="mt-1 text-xs leading-5 text-neutral-500">{{ missingParamHint(item) }}</p>
+                          <select
+                            v-if="missingParamOptions(item).length"
+                            class="mt-2 h-9 w-full rounded-full border border-info-100 bg-white px-3 text-xs font-medium text-neutral-800 outline-none focus:border-info-300 focus:ring-2 focus:ring-info-100"
+                            @change="handleMissingParamSelect(item, $event)"
+                          >
+                            <option value="">请选择{{ userMissingParamLabel(item) }}</option>
+                            <option
+                              v-for="option in missingParamOptions(item, 100)"
+                              :key="`${item.name}_${optionDisplayValue(option)}`"
+                              :value="optionDisplayValue(option)"
+                            >
+                              {{ optionDisplayLabel(option) }}
+                            </option>
+                          </select>
+                          <button
+                            v-else-if="item.name === 'file'"
+                            type="button"
+                            class="mt-2 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 hover:bg-neutral-50"
+                            @click="chooseAttachment"
+                          >
+                            选择附件
+                          </button>
+                          <p class="mt-2 break-words text-xs leading-5 text-neutral-500">{{ userMissingParamHint(item) }}</p>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        class="mt-3 w-full rounded-full bg-neutral-950 px-3 py-1.5 text-xs font-medium text-white"
-                        @click="fillMissingParamsTemplate(message.result)"
-                      >
-                        生成 Params 模板
-                      </button>
                     </div>
                     <div v-if="message.attachments?.length" class="mt-3 grid grid-cols-2 gap-2">
                       <div
@@ -1391,7 +2245,7 @@ onBeforeUnmount(() => {
                           class="flex h-20 w-full flex-col items-center justify-center gap-1"
                           :class="message.role === 'user' ? 'text-white/70' : 'text-neutral-400'"
                         >
-                          <span class="text-[10px] font-semibold tracking-wide">{{ attachmentKindLabel(attachment.kind) }}</span>
+                          <span class="rounded bg-white/60 px-1.5 py-0.5 text-[10px] font-semibold">{{ attachmentKindLabel(attachment.kind) }}</span>
                         </div>
                         <div
                           class="truncate px-2 py-1.5 text-[11px]"
@@ -1405,7 +2259,7 @@ onBeforeUnmount(() => {
                 </article>
                 <article v-if="testSending" class="flex justify-start">
                   <div class="rounded-2xl rounded-bl-md bg-white px-4 py-3 text-sm text-neutral-500 shadow-sm">
-                    <span class="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600 align-[-2px]"></span>思考中...
+                    <span class="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600"></span>思考中...
                   </div>
                 </article>
               </div>
@@ -1438,7 +2292,7 @@ onBeforeUnmount(() => {
                     title="移除附件"
                     @click="removeAttachment(index)"
                   >
-                    <span class="leading-none">×</span>
+                    <span aria-hidden="true">×</span>
                   </button>
                 </div>
               </div>
@@ -1461,7 +2315,7 @@ onBeforeUnmount(() => {
                   :disabled="testSending"
                   @click="chooseAttachment"
                 >
-                  <span class="text-[10px] font-semibold leading-none">FILE</span>
+                  <span aria-hidden="true">＋</span>
                 </button>
                 <button
                   class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white text-sm text-neutral-700 shadow-sm hover:bg-neutral-50 disabled:opacity-50"
@@ -1471,9 +2325,8 @@ onBeforeUnmount(() => {
                   :disabled="testSending || voiceBusy || !voiceSupported"
                   @click="toggleVoiceRecording"
                 >
-                  <span v-if="voiceBusy" class="h-4 w-4 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600"></span>
-                  <span v-else-if="isRecording" class="h-3 w-3 rounded-sm bg-current"></span>
-                  <span v-else class="text-[10px] font-semibold leading-none">MIC</span>
+                  <span v-if="voiceBusy" class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600"></span>
+                  <span v-else aria-hidden="true">{{ isRecording ? '■' : '●' }}</span>
                 </button>
                 <input
                   v-model="testInput"
@@ -1488,10 +2341,7 @@ onBeforeUnmount(() => {
                   :disabled="testSending || (!testInput.trim() && !selectedAttachments.length)"
                   @click="sendTestMessage"
                 >
-                  <svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M5 12h13"></path>
-                    <path d="M13 6l6 6-6 6"></path>
-                  </svg>
+                  <span aria-hidden="true">➤</span>
                 </button>
               </div>
             </div>
@@ -1562,7 +2412,7 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="flex shrink-0 items-center gap-2 text-xs text-neutral-500">
                           <span class="font-mono">{{ resultConfidence(message.result) }}</span>
-                          <span class="inline-block transition-transform group-open:rotate-180">⌄</span>
+                          <span class="transition-transform group-open:rotate-180">⌄</span>
                         </div>
                       </summary>
                       <div class="space-y-3 border-t border-neutral-100 px-3 pb-3 pt-3">
@@ -1591,7 +2441,16 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
                         <div v-if="isClarifyResult(message.result)" class="rounded-lg bg-white p-2">
-                          <p class="mb-1 text-neutral-500">Missing Parameters</p>
+                          <div class="mb-2 flex items-center justify-between gap-2">
+                            <p class="text-neutral-500">Missing Parameters</p>
+                            <button
+                              type="button"
+                              class="rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] font-medium text-neutral-700 hover:bg-neutral-50"
+                              @click="fillMissingParamsTemplate(message.result)"
+                            >
+                              生成 Params 模板
+                            </button>
+                          </div>
                           <div class="space-y-2 text-xs leading-5 text-neutral-800">
                             <div
                               v-for="item in clarifyMissingDetails(message.result)"
@@ -1601,6 +2460,9 @@ onBeforeUnmount(() => {
                               <p class="break-all font-mono text-neutral-900">{{ item.name }}</p>
                               <p class="break-all text-neutral-600">{{ missingParamMeta(item) }}</p>
                               <p class="break-all text-neutral-500">{{ missingParamHint(item) }}</p>
+                              <p v-if="missingParamOptions(item).length" class="mt-1 break-all text-neutral-500">
+                                options: {{ missingParamOptions(item).map(option => `${optionDisplayValue(option)}:${optionDisplayLabel(option)}`).join(' / ') }}
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -1619,7 +2481,7 @@ onBeforeUnmount(() => {
                 </article>
                 <article v-if="testSending" class="flex justify-start">
                   <div class="rounded-2xl rounded-bl-md bg-white px-4 py-3 text-sm text-neutral-500 shadow-sm">
-                    <span class="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600 align-[-2px]"></span>规划中...
+                    <span class="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600"></span>规划中...
                   </div>
                 </article>
               </div>
@@ -1673,6 +2535,15 @@ onBeforeUnmount(() => {
                   </select>
                 </label>
                 <label class="block text-sm font-medium text-neutral-700">
+                  执行方式
+                  <select v-model="hostExecutionMode" class="mt-1 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-sm outline-none focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10">
+                    <option v-for="option in hostExecutionOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
+                  </select>
+                  <span class="mt-1 block text-xs leading-5 text-neutral-500">
+                    {{ hostExecutionOptions.find(option => option.id === hostExecutionMode)?.description || '选择真实执行器时，仅对注册了对应 Host Executor 的 API 生效。' }}
+                  </span>
+                </label>
+                <label class="block text-sm font-medium text-neutral-700">
                   Identity
                   <select v-model="plannerIdentityId" class="mt-1 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-sm outline-none focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10">
                     <option value="">不指定</option>
@@ -1714,9 +2585,153 @@ onBeforeUnmount(() => {
           <button
             class="group flex shrink-0 items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-sm font-semibold tracking-wide text-neutral-700 shadow-sm hover:border-neutral-300 hover:bg-neutral-50"
             type="button"
+            @click="testRecordsCollapsed = !testRecordsCollapsed"
+          >
+            <span class="text-xs text-neutral-500 transition-transform group-hover:text-neutral-700" :class="testRecordsCollapsed ? '-rotate-90' : 'rotate-0'">⌄</span>
+            测试记录
+          </button>
+          <span class="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-500">{{ testRecordSessions.length }} 个会话 / {{ testRecords.length }} 条记录</span>
+          <button
+            class="rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-60"
+            type="button"
+            :disabled="testRecordsLoading || testRecordsLoadingMore"
+            @click="refreshTestRecords()"
+          >
+            <span class="mr-1 inline-block" :class="testRecordsLoading ? 'animate-spin' : ''">↻</span>
+            刷新
+          </button>
+          <div class="h-px flex-1 bg-neutral-200"></div>
+        </div>
+
+        <section v-show="!testRecordsCollapsed" class="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+          <div class="flex items-center justify-between gap-3 border-b border-neutral-100 px-4 py-3">
+            <div class="min-w-0">
+              <h3 class="text-base font-semibold text-neutral-950">最近测试会话</h3>
+              <p class="mt-0.5 truncate text-sm text-neutral-500">点击一级会话展开二级测试记录，按时间倒序恢复调试链路。</p>
+            </div>
+            <span class="shrink-0 rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-500">Session: {{ testSessionId.slice(0, 18) }}</span>
+          </div>
+          <div v-if="testRecordsError" class="mx-4 mt-3 rounded-xl border border-warning/20 bg-warning-50 px-3 py-2 text-xs text-warning-800">
+            {{ testRecordsError }}
+          </div>
+          <div v-if="testRecordsLoading && !testRecords.length" class="px-4 py-8 text-center text-sm text-neutral-500">
+            <span class="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600"></span>加载测试记录中...
+          </div>
+          <div v-else-if="!testRecords.length" class="px-4 py-8 text-center text-sm text-neutral-500">
+            暂无测试记录。发送一条测试消息后会自动出现在这里。
+          </div>
+          <div
+            v-else
+            ref="testRecordsScrollRef"
+            class="max-h-72 overflow-auto"
+            @scroll="handleTestRecordsScroll"
+          >
+            <table class="min-w-full text-left text-xs">
+              <thead class="sticky top-0 z-10 border-b border-neutral-100 bg-white text-neutral-500">
+                <tr>
+                  <th class="px-4 py-2.5 font-medium">时间</th>
+                  <th class="px-4 py-2.5 font-medium">用户输入</th>
+                  <th class="px-4 py-2.5 font-medium">状态</th>
+                  <th class="px-4 py-2.5 font-medium">Trace</th>
+                  <th class="px-4 py-2.5 text-right font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-neutral-100">
+                <template v-for="session in testRecordSessions" :key="session.session_id">
+                  <tr
+                    class="cursor-pointer bg-neutral-50 transition-colors hover:bg-neutral-100"
+                    :class="isTestRecordSessionExpanded(session.session_id) ? 'bg-primary/5' : ''"
+                    @click="toggleTestRecordSession(session.session_id)"
+                  >
+                    <td class="whitespace-nowrap px-4 py-3 text-neutral-500">
+                      <span
+                        class="mr-2 inline-block text-[10px] text-neutral-400 transition-transform"
+                        :class="isTestRecordSessionExpanded(session.session_id) ? 'rotate-90 text-primary' : ''"
+                      >›</span>
+                      {{ formatDate(session.last_created_at) }}
+                    </td>
+                    <td class="max-w-[440px] px-4 py-3">
+                      <p class="truncate font-semibold text-neutral-950" :title="session.title">{{ session.title }}</p>
+                      <p class="mt-0.5 truncate text-neutral-500">{{ session.record_count }} 条记录 · {{ session.message_count }} 条消息 · {{ session.attachment_count }} 个附件 · {{ session.session_id }}</p>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span class="inline-flex rounded-full px-2 py-1 text-[11px] font-semibold" :class="testRecordStatusClass(session)">
+                        {{ testRecordStatusLabel(session) }}
+                      </span>
+                      <p v-if="session.execution_error" class="mt-1 max-w-[240px] truncate text-[11px] text-danger-600" :title="session.execution_error">{{ session.execution_error }}</p>
+                    </td>
+                    <td class="max-w-[320px] px-4 py-3">
+                      <p class="truncate font-mono text-neutral-700" :title="testRecordMeta(session)">{{ testRecordMeta(session) }}</p>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                      <button
+                        class="rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
+                        type="button"
+                        @click.stop="toggleTestRecordSession(session.session_id)"
+                      >
+                        {{ isTestRecordSessionExpanded(session.session_id) ? '收起二级' : '展开二级' }}
+                      </button>
+                    </td>
+                  </tr>
+                  <tr
+                    v-for="record in session.records"
+                    v-show="isTestRecordSessionExpanded(session.session_id)"
+                    :key="record.record_id || record.session_id"
+                    class="transition-colors"
+                    :class="selectedTestRecordId === (record.record_id || record.session_id) ? 'bg-primary/5' : 'hover:bg-neutral-50'"
+                  >
+                    <td class="whitespace-nowrap px-4 py-3 pl-8 text-neutral-500">{{ formatDate(record.last_created_at) }}</td>
+                    <td class="max-w-[440px] px-4 py-3">
+                      <p class="truncate font-medium text-neutral-900" :title="record.title">{{ record.title }}</p>
+                      <p class="mt-0.5 truncate text-neutral-500">二级记录 · {{ record.message_count }} 条消息 · {{ record.attachment_count }} 个附件 · {{ record.session_id }}</p>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span class="inline-flex rounded-full px-2 py-1 text-[11px] font-semibold" :class="testRecordStatusClass(record)">
+                        {{ testRecordStatusLabel(record) }}
+                      </span>
+                      <p v-if="record.execution_error" class="mt-1 max-w-[240px] truncate text-[11px] text-danger-600" :title="record.execution_error">{{ record.execution_error }}</p>
+                    </td>
+                    <td class="max-w-[320px] px-4 py-3">
+                      <p class="truncate font-mono text-neutral-700" :title="testRecordMeta(record)">{{ testRecordMeta(record) }}</p>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                      <button
+                        class="rounded-full bg-neutral-950 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                        type="button"
+                        :disabled="testRecordsLoading"
+                        @click="loadTestRecord(record)"
+                      >
+                        加载到模拟器
+                      </button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div class="border-t border-neutral-100 px-4 py-3 text-center text-xs text-neutral-500">
+              <span v-if="testRecordsLoadingMore">
+                <span class="mr-1.5 inline-block h-3 w-3 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-600"></span>继续加载更早测试记录...
+              </span>
+              <button
+                v-else-if="testRecordsHasMore"
+                class="rounded-full border border-neutral-200 bg-white px-3 py-1.5 font-medium text-neutral-600 hover:bg-neutral-50"
+                type="button"
+                @click="loadMoreTestRecords"
+              >
+                加载更多
+              </button>
+              <span v-else>已按时间倒序加载全部可用测试记录</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="flex items-center gap-3 pt-1">
+          <button
+            class="group flex shrink-0 items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-sm font-semibold tracking-wide text-neutral-700 shadow-sm hover:border-neutral-300 hover:bg-neutral-50"
+            type="button"
             @click="systemSettingsCollapsed = !systemSettingsCollapsed"
           >
-            <span class="inline-block text-xs text-neutral-500 transition-transform group-hover:text-neutral-700" :class="systemSettingsCollapsed ? '-rotate-90' : 'rotate-0'">⌄</span>
+            <span class="text-xs text-neutral-500 transition-transform group-hover:text-neutral-700" :class="systemSettingsCollapsed ? '-rotate-90' : 'rotate-0'">⌄</span>
             系统设置
           </button>
           <div class="h-px flex-1 bg-neutral-200"></div>
@@ -1785,9 +2800,11 @@ onBeforeUnmount(() => {
             <div class="flex items-center justify-between gap-3 border-b border-neutral-100 px-4 py-3">
               <div class="min-w-0">
                 <h3 class="text-base font-semibold text-neutral-950">Host Executor</h3>
-                <p class="mt-0.5 truncate text-sm text-neutral-500">注册执行契约，不保存宿主业务函数</p>
+                <p class="mt-0.5 truncate text-sm text-neutral-500">注册执行契约 + 宿主运行实现</p>
               </div>
-              <span class="shrink-0 rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700">{{ activeHostExecutorDefinitions.length }} 个</span>
+              <span class="shrink-0 rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700">
+                {{ executableHostExecutorIds.size }} / {{ activeHostExecutorDefinitions.length }}
+              </span>
             </div>
             <div class="max-h-[620px] overflow-y-auto p-4">
               <div v-if="activeHostExecutorDefinitions.length" class="space-y-2">
@@ -1801,10 +2818,10 @@ onBeforeUnmount(() => {
                       <p class="truncate text-sm font-semibold text-neutral-950">{{ textValue(executor.name) || executor.id }}</p>
                       <p class="mt-0.5 break-all font-mono text-xs text-neutral-500">{{ executor.id }}</p>
                     </div>
-                    <span class="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] text-neutral-600">{{ executor.kind }}</span>
+                    <span class="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] text-neutral-600">{{ hostExecutorRuntimeStatus(executor) }}</span>
                   </div>
                   <p class="mt-2 break-words text-xs leading-5 text-neutral-600">{{ textValue(executor.description) || '宿主应用按同 ID 接入 runtime implementation。' }}</p>
-                  <p class="mt-2 break-all font-mono text-[11px] text-neutral-500">runtime: {{ executor.runtime?.implementation || 'host_app' }}</p>
+                  <p class="mt-2 break-all font-mono text-[11px] text-neutral-500">{{ executor.kind }} · runtime: {{ executor.runtime?.implementation || 'host_app' }}</p>
                 </article>
               </div>
               <div v-else class="rounded-xl border border-dashed border-neutral-200 px-3 py-6 text-center text-sm text-neutral-500">
