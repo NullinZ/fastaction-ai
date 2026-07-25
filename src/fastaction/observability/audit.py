@@ -29,7 +29,11 @@ class AuditRecorder:
 
             persist_run_record(run)
         except Exception as exc:
-            logger.warning("fastaction.run_persist_failed", run_id=run.id, error=str(exc)[:300])
+            logger.warning(
+                "fastaction.run_persist_failed",
+                run_id=run.id,
+                exception_type=type(exc).__name__,
+            )
         return run
 
     def list_runs(self, limit: int = 100) -> list[RunRecord]:

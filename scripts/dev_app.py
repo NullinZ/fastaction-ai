@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastaction.interfaces import router as fastaction_router
 from fastaction.persistence import initialize_fastaction_persistence
 from fastaction.registries import runtime
+from fastaction.safe_errors import SafeErrorMiddleware
 
 
 @asynccontextmanager
@@ -18,6 +19,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="FastAction Dev App", lifespan=lifespan)
 
+app.add_middleware(SafeErrorMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

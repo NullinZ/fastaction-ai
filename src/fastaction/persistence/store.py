@@ -205,7 +205,11 @@ def persist_run_record(run: RunRecord) -> None:
     try:
         _run_write(lambda session: _upsert_run_record(session, run))
     except Exception as exc:
-        logger.warning("fastaction.run_persist_failed", run_id=run.id, error=str(exc)[:300])
+        logger.warning(
+            "fastaction.run_persist_failed",
+            run_id=run.id,
+            exception_type=type(exc).__name__,
+        )
 
 
 def list_run_records(limit: int = 100) -> list[dict[str, Any]]:
