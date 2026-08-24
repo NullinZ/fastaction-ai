@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastaction.interfaces import router as fastaction_router
-from fastaction.persistence import initialize_fastaction_persistence
+from fastaction.persistence import close_fastaction_persistence, initialize_fastaction_persistence
 from fastaction.registries import runtime
 from fastaction.safe_errors import SafeErrorMiddleware
 
@@ -14,7 +14,10 @@ from fastaction.safe_errors import SafeErrorMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_fastaction_persistence(runtime)
-    yield
+    try:
+        yield
+    finally:
+        close_fastaction_persistence()
 
 
 app = FastAPI(title="FastAction Dev App", lifespan=lifespan)

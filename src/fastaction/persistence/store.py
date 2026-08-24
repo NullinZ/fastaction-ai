@@ -45,6 +45,7 @@ settings = get_settings()
 
 _initialized = False
 _session_factory: sessionmaker | None = None
+_owned_engine: Engine | None = None
 
 
 def persistence_enabled() -> bool:
@@ -65,7 +66,7 @@ def initialize_fastaction_persistence(
         logger.info("fastaction.persistence.disabled")
         return
 
-    global _initialized, _session_factory
+    global _initialized, _session_factory, _owned_engine
     if session_factory is not None:
         _session_factory = session_factory
         with _session_factory() as session:
@@ -81,7 +82,8 @@ def initialize_fastaction_persistence(
         if not database_url:
             logger.info("fastaction.persistence.disabled", reason="missing_database_url")
             return
-        engine = create_engine(database_url)
+        engine = create_engine(database_url, **_engine_options(database_url, get_settings()))
+        _owned_engine = engine
 
     _ensure_schema_name(FASTACTION_SCHEMA)
     if engine.dialect.name != "sqlite":
@@ -96,6 +98,39 @@ def initialize_fastaction_persistence(
     load_runtime_from_store(runtime)
     _initialized = True
     logger.info("fastaction.persistence.initialized", schema=FASTACTION_SCHEMA)
+
+
+def _engine_options(database_url: str, settings) -> dict[str, object]:
+    if database_url.startswith("sqlite"):
+        return {"pool_pre_ping": True}
+    if not database_url.startswith("postgresql"):
+        return {"pool_pre_ping": True}
+    return {
+        "pool_pre_ping": True,
+        "pool_size": max(1, min(settings.database_pool_size, 50)),
+        "max_overflow": max(0, min(settings.database_max_overflow, 50)),
+        "pool_timeout": max(1, min(settings.database_pool_timeout_seconds, 60)),
+        "pool_recycle": max(60, min(settings.database_pool_recycle_seconds, 86400)),
+        "pool_use_lifo": True,
+        "pool_reset_on_return": "rollback",
+        "connect_args": {
+            "connect_timeout": 5,
+            "application_name": "fastaction-ai",
+            "options": (
+                "-c idle_in_transaction_session_timeout="
+                f"{max(1000, min(settings.database_idle_transaction_timeout_ms, 600000))}"
+            ),
+        },
+    }
+
+
+def close_fastaction_persistence() -> None:
+    global _initialized, _session_factory, _owned_engine
+    _session_factory = None
+    if _owned_engine is not None:
+        _owned_engine.dispose()
+        _owned_engine = None
+    _initialized = False
 
 
 def load_runtime_from_store(runtime) -> None:

@@ -1,4 +1,5 @@
 from .store import (
+    close_fastaction_persistence,
     clear_test_messages,
     delete_api_definition,
     delete_card_binding,
@@ -28,6 +29,7 @@ from .store import (
 )
 
 __all__ = [
+    "close_fastaction_persistence",
     "clear_test_messages",
     "delete_api_definition",
     "delete_card_binding",
