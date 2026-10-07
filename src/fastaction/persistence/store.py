@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import create_engine
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from fastaction.logging import get_logger
 from fastaction.persistence.models import (
     FASTACTION_SCHEMA,
     FastActionAPIDefinitionModel,
@@ -25,7 +25,6 @@ from fastaction.persistence.models import (
     FastActionRunRecordModel,
     FastActionTestMessageModel,
 )
-from fastaction.logging import get_logger
 from fastaction.schemas import (
     APIDefinition,
     CardBinding,
@@ -239,7 +238,7 @@ def persist_run_record(run: RunRecord) -> None:
         return
     try:
         _run_write(lambda session: _upsert_run_record(session, run))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - optional audit persistence must not lose the run.
         logger.warning(
             "fastaction.run_persist_failed",
             run_id=run.id,
@@ -308,7 +307,7 @@ def record_test_message(
         attachments=attachments or [],
         result=result,
         message_metadata=metadata or {},
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(UTC).replace(tzinfo=None),
     )
     _run_write(lambda session: session.merge(row))
     return serialize_test_message(row)
@@ -434,7 +433,7 @@ def _upsert_api_definition(session: Session, item: APIDefinition) -> None:
             host_app=str(item.metadata.get("host_app") or ""),
             card_type=item.render.card_type,
             payload=payload,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
 
@@ -448,7 +447,7 @@ def _upsert_provider_config(session: Session, item: ProviderConfig) -> None:
             model_name=item.model,
             is_active=item.is_active,
             payload=item.model_dump(mode="json"),
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
 
@@ -461,7 +460,7 @@ def _upsert_identity_definition(session: Session, item: IdentityDefinition) -> N
             actor_type=item.actor_type,
             is_active=item.is_active,
             payload=item.model_dump(mode="json"),
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
 
@@ -472,7 +471,7 @@ def _upsert_card_definition(session: Session, item: CardDefinition) -> None:
             card_type=item.card_type,
             category=item.category,
             payload=item.model_dump(mode="json"),
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
 
@@ -485,7 +484,7 @@ def _upsert_card_binding(session: Session, item: CardBinding) -> None:
             card_type=item.card_type,
             component_key=item.component_key,
             payload=item.model_dump(mode="json"),
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
 
@@ -498,7 +497,7 @@ def _upsert_host_executor_definition(session: Session, item: HostExecutorDefinit
             kind=str(item.kind),
             is_active=item.is_active,
             payload=item.model_dump(mode="json"),
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
 
@@ -509,7 +508,7 @@ def _upsert_knowledge_definition(session: Session, item: KnowledgeDefinition) ->
             id=item.id,
             is_active=item.is_active,
             payload=item.model_dump(mode="json"),
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
 
@@ -522,7 +521,7 @@ def _upsert_option_set(session: Session, item: OptionSetDefinition) -> None:
             category=item.category,
             is_active=item.is_active,
             payload=item.model_dump(mode="json"),
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
 
@@ -567,7 +566,7 @@ def _upsert_execution_result(session: Session, result: ExecutionResult) -> None:
             error=result.error,
             render=result.render,
             payload=payload,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
 

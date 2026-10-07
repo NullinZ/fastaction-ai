@@ -6,7 +6,6 @@ from pydantic import Field
 
 from fastaction.schemas.common import FastActionModel, JsonObject, LocalizedText
 
-
 HostExecutorKind = Literal[
     "host_proxy",
     "browser_fetch",

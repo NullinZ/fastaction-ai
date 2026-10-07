@@ -101,7 +101,7 @@ class QwenBalancedProvider(LLMProvider):
                             "json_schema_requested": bool(json_schema),
                         },
                     )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - record provider failure and try the next candidate.
                     last_error = exc
                     record_qwen_failure(row, exc)
                     attempts.append(

@@ -1,44 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastaction.settings import get_settings
 
-
-QWEN_FREE_QUOTA_MODEL_NAMES = """
-qwen3.7-max
-qwen3.7-max-2026-05-20
-qwen3.7-plus
-qwen3.7-plus-2026-05-26
-qwen-plus
-qwen-plus-latest
-qwen-flash
-qwen-flash-latest
-qwen-turbo
-qwen-turbo-latest
-qwq-plus
-qwen-long
-qwen3-coder-plus
-qwen3-coder-flash
-deepseek-v4-flash
-deepseek-v3.2
-deepseek-r1
-deepseek-r1-distill-qwen-1.5b
-deepseek-r1-distill-qwen-7b
-deepseek-r1-distill-qwen-14b
-deepseek-r1-distill-qwen-32b
-deepseek-r1-distill-llama-8b
-deepseek-r1-distill-llama-70b
-kimi-k2.6
-kimi-k2.5
-Moonshot-Kimi-K2-Instruct
-glm-5.1
-glm-5
-MiniMax-M2.5
-MiniMax-M2.1
-""".split()
+QWEN_FREE_QUOTA_MODEL_NAMES = ["qwen3.7-max", "qwen3.7-max-2026-05-20", "qwen3.7-plus", "qwen3.7-plus-2026-05-26", "qwen-plus", "qwen-plus-latest", "qwen-flash", "qwen-flash-latest", "qwen-turbo", "qwen-turbo-latest", "qwq-plus", "qwen-long", "qwen3-coder-plus", "qwen3-coder-flash", "deepseek-v4-flash", "deepseek-v3.2", "deepseek-r1", "deepseek-r1-distill-qwen-1.5b", "deepseek-r1-distill-qwen-7b", "deepseek-r1-distill-qwen-14b", "deepseek-r1-distill-qwen-32b", "deepseek-r1-distill-llama-8b", "deepseek-r1-distill-llama-70b", "kimi-k2.6", "kimi-k2.5", "Moonshot-Kimi-K2-Instruct", "glm-5.1", "glm-5", "MiniMax-M2.5", "MiniMax-M2.1"]
 
 QWEN_SESSION_IDLE_MINUTES = 5
 QWEN_MODEL_PRIORITY = {model_name: index for index, model_name in enumerate(QWEN_FREE_QUOTA_MODEL_NAMES)}
@@ -91,9 +59,9 @@ def is_qwen_free_quota_expired(
     expiration = expires_at if expires_at is not None else qwen_free_quota_expires_at()
     if expiration is None:
         return False
-    current = now or (datetime.now(timezone.utc) if expiration.tzinfo else datetime.now())
+    current = now or (datetime.now(UTC) if expiration.tzinfo else datetime.now().astimezone().replace(tzinfo=None))
     if expiration.tzinfo and current.tzinfo is None:
-        current = current.replace(tzinfo=timezone.utc)
+        current = current.replace(tzinfo=UTC)
     if current.tzinfo and expiration.tzinfo is None:
         current = current.replace(tzinfo=None)
     return current > expiration
@@ -155,7 +123,7 @@ def select_qwen_candidates(preferred_model: str | None = None) -> list[QwenModel
             key=lambda row: (
                 0 if row.model_name == preferred else 1,
                 row.used_tokens / max(1, row.quota_tokens),
-                row.last_used_at or datetime.min,
+                row.last_used_at or datetime.min,  # noqa: DTZ901 - naive timestamp column comparison.
                 QWEN_MODEL_PRIORITY.get(row.model_name, 9999),
             )
         )
@@ -163,7 +131,7 @@ def select_qwen_candidates(preferred_model: str | None = None) -> list[QwenModel
     active.sort(
         key=lambda row: (
             row.used_tokens / max(1, row.quota_tokens),
-            row.last_used_at or datetime.min,
+            row.last_used_at or datetime.min,  # noqa: DTZ901 - naive timestamp column comparison.
             row.fail_count,
             QWEN_MODEL_PRIORITY.get(row.model_name, 9999),
         )
@@ -177,7 +145,7 @@ def record_qwen_success(
     usage: dict[str, Any],
     latency_ms: int,
 ) -> dict[str, Any]:
-    now = datetime.now()
+    now = datetime.now().astimezone().replace(tzinfo=None)
     row.used_tokens += usage_total_tokens(usage)
     row.request_count += 1
     row.success_count += 1
@@ -195,7 +163,7 @@ def record_qwen_failure(row: QwenModelUsage, error: Exception) -> None:
     row.fail_count += 1
     row.last_status = "failed"
     row.last_error = str(error)[:500]
-    row.last_used_at = datetime.now()
+    row.last_used_at = datetime.now().astimezone().replace(tzinfo=None)
     if is_free_quota_exhausted_error(error):
         row.is_exhausted = True
         row.used_tokens = max(row.used_tokens, row.quota_tokens)
