@@ -3,10 +3,10 @@ from __future__ import annotations
 from fastaction.domain.enums import ProviderKind
 from fastaction.providers.anthropic import AnthropicMessagesProvider
 from fastaction.providers.base import LLMProvider
+from fastaction.providers.credentials import resolve_provider_api_key
 from fastaction.providers.mimo import MimoProvider
 from fastaction.providers.openai_compatible import OpenAICompatibleProvider
 from fastaction.providers.qwen_balanced import QwenBalancedProvider
-from fastaction.providers.credentials import resolve_provider_api_key
 from fastaction.registries.memory import default_provider_presets
 from fastaction.schemas import ProviderConfig
 

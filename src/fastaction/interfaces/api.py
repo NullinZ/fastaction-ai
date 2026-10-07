@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 import time
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,19 +11,10 @@ from fastaction.domain.enums import InstructionAction
 from fastaction.domain.errors import RegistryNotFoundError
 from fastaction.executor import apply_field_bindings
 from fastaction.observability import audit_recorder
-from fastaction.planner import DeterministicPlanner, LLMPlanner
 from fastaction.persistence import (
     clear_test_messages,
-    delete_api_definition as persist_delete_api_definition,
-    delete_host_executor_definition as persist_delete_host_executor_definition,
-    delete_identity_definition as persist_delete_identity_definition,
-    delete_option_set as persist_delete_option_set,
-    delete_provider_config as persist_delete_provider_config,
-    is_initialized as fastaction_persistence_initialized,
     list_execution_results,
-    list_run_records as list_persisted_run_records,
     list_test_messages,
-    persistence_enabled,
     persist_api_definition,
     persist_card_binding,
     persist_card_definition,
@@ -33,8 +24,31 @@ from fastaction.persistence import (
     persist_knowledge_definition,
     persist_option_set,
     persist_provider_config,
+    persistence_enabled,
     record_test_message,
 )
+from fastaction.persistence import (
+    delete_api_definition as persist_delete_api_definition,
+)
+from fastaction.persistence import (
+    delete_host_executor_definition as persist_delete_host_executor_definition,
+)
+from fastaction.persistence import (
+    delete_identity_definition as persist_delete_identity_definition,
+)
+from fastaction.persistence import (
+    delete_option_set as persist_delete_option_set,
+)
+from fastaction.persistence import (
+    delete_provider_config as persist_delete_provider_config,
+)
+from fastaction.persistence import (
+    is_initialized as fastaction_persistence_initialized,
+)
+from fastaction.persistence import (
+    list_run_records as list_persisted_run_records,
+)
+from fastaction.planner import DeterministicPlanner, LLMPlanner
 from fastaction.providers import (
     ProviderMessage,
     build_provider,
@@ -44,8 +58,8 @@ from fastaction.providers import (
 from fastaction.providers.qwen_model_pool import (
     QWEN_FREE_QUOTA_MODEL_NAMES,
     qwen_free_quota_expires_at,
-    serialize_qwen_usage,
     select_qwen_candidates,
+    serialize_qwen_usage,
 )
 from fastaction.registries import runtime
 from fastaction.schemas import (
@@ -938,7 +952,7 @@ def _select_provider(provider_id: str | None) -> ProviderConfig | None:
     ]
     if not planning_configs:
         return None
-    return sorted(planning_configs, key=lambda item: item.routing.priority)[0]
+    return min(planning_configs, key=lambda item: item.routing.priority)
 
 
 def _record_test_bench_messages(request: ChatRequest, instruction) -> None:

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from difflib import SequenceMatcher
 import re
+from difflib import SequenceMatcher
 from typing import Any
 
+from fastaction.domain.errors import RegistryNotFoundError
 from fastaction.executor.field_mapper import read_path
 from fastaction.schemas import APIDefinition
 
@@ -176,7 +177,7 @@ def _option_set(definition: dict[str, Any]):
         from fastaction.registries import runtime
 
         option_set = runtime.option_sets.get(option_set_id.strip())
-    except Exception:
+    except RegistryNotFoundError:
         return None
     if not option_set.is_active:
         return None
