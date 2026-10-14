@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from threading import RLock
 
-from fastaction.schemas import RunRecord
 from fastaction.logging import get_logger
+from fastaction.schemas import RunRecord
 
 logger = get_logger("fastaction.audit")
 
@@ -28,7 +28,7 @@ class AuditRecorder:
             from fastaction.persistence import persist_run_record
 
             persist_run_record(run)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - keep the recorded run if persistence fails.
             logger.warning(
                 "fastaction.run_persist_failed",
                 run_id=run.id,

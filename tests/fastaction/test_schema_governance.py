@@ -21,7 +21,6 @@ from fastaction.persistence.models import (
 )
 from fastaction.settings import get_settings
 
-
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_FASTACTION_TABLES = {
     "api_definitions",

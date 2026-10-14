@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import ClassVar
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import declarative_base
 
 from fastaction.settings import get_settings
-
 
 FastActionBase = declarative_base()
 FASTACTION_SCHEMA = get_settings().db_schema or "fastaction"
@@ -14,7 +14,7 @@ FASTACTION_SCHEMA = get_settings().db_schema or "fastaction"
 
 class FastActionAPIDefinitionModel(FastActionBase):
     __tablename__ = "api_definitions"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(160), primary_key=True)
     version = Column(String(40), nullable=False, default="1.0.0")
@@ -31,7 +31,7 @@ class FastActionAPIDefinitionModel(FastActionBase):
 
 class FastActionProviderConfigModel(FastActionBase):
     __tablename__ = "provider_configs"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(160), primary_key=True)
     provider = Column(String(80), nullable=False, index=True)
@@ -45,7 +45,7 @@ class FastActionProviderConfigModel(FastActionBase):
 
 class FastActionIdentityDefinitionModel(FastActionBase):
     __tablename__ = "identity_definitions"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(160), primary_key=True)
     host_app = Column(String(120), nullable=False, index=True, default="default")
@@ -58,7 +58,7 @@ class FastActionIdentityDefinitionModel(FastActionBase):
 
 class FastActionCardDefinitionModel(FastActionBase):
     __tablename__ = "card_definitions"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     card_type = Column(String(120), primary_key=True)
     category = Column(String(80), nullable=False, index=True, default="protocol")
@@ -69,7 +69,7 @@ class FastActionCardDefinitionModel(FastActionBase):
 
 class FastActionCardBindingModel(FastActionBase):
     __tablename__ = "card_bindings"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(320), primary_key=True)
     host_app = Column(String(120), nullable=False, index=True)
@@ -82,7 +82,7 @@ class FastActionCardBindingModel(FastActionBase):
 
 class FastActionHostExecutorDefinitionModel(FastActionBase):
     __tablename__ = "host_executor_definitions"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(160), primary_key=True)
     host_app = Column(String(120), nullable=False, index=True, default="default")
@@ -95,7 +95,7 @@ class FastActionHostExecutorDefinitionModel(FastActionBase):
 
 class FastActionKnowledgeDefinitionModel(FastActionBase):
     __tablename__ = "knowledge_definitions"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(160), primary_key=True)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
@@ -106,7 +106,7 @@ class FastActionKnowledgeDefinitionModel(FastActionBase):
 
 class FastActionOptionSetModel(FastActionBase):
     __tablename__ = "option_sets"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(160), primary_key=True)
     host_app = Column(String(120), nullable=False, index=True, default="default")
@@ -119,7 +119,7 @@ class FastActionOptionSetModel(FastActionBase):
 
 class FastActionRunRecordModel(FastActionBase):
     __tablename__ = "run_records"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(160), primary_key=True)
     conversation_id = Column(String(160), nullable=True, index=True)
@@ -140,7 +140,7 @@ class FastActionRunRecordModel(FastActionBase):
 
 class FastActionExecutionResultModel(FastActionBase):
     __tablename__ = "execution_results"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(180), primary_key=True)
     run_id = Column(String(160), nullable=False, index=True)
@@ -159,7 +159,7 @@ class FastActionExecutionResultModel(FastActionBase):
 
 class FastActionTestMessageModel(FastActionBase):
     __tablename__ = "test_messages"
-    __table_args__ = {"schema": FASTACTION_SCHEMA}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": FASTACTION_SCHEMA}
 
     id = Column(String(80), primary_key=True)
     session_id = Column(String(160), nullable=False, index=True)

@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import time
-from typing import Callable
+from collections.abc import Callable
 from uuid import uuid4
 
 from fastapi import Request, Response
@@ -45,7 +45,7 @@ def safe_server_error_response(status_code: int, request_id: str) -> JSONRespons
 def _should_sanitize_server_error(body: bytes) -> bool:
     try:
         payload = json.loads(body.decode("utf-8"))
-    except Exception:
+    except (ValueError, UnicodeDecodeError):
         return True
     if not isinstance(payload, dict):
         return True
@@ -69,7 +69,7 @@ class SafeErrorMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - final HTTP boundary must redact all server errors.
             process_time_ms = round((time.perf_counter() - started_at) * 1000, 2)
             logger.error(
                 "request_failed request_id=%s error_code=%s exception_type=%s "

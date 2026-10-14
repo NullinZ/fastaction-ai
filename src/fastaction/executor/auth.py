@@ -88,7 +88,7 @@ def build_auth_parts(
     if mode == AuthMode.BASIC:
         username = _read_secret(auth.username_ref, secrets)
         password = _read_secret(auth.password_ref, secrets)
-        basic = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+        basic = b64encode(f"{username}:{password}".encode()).decode("ascii")
         parts["headers"][auth.header_name or "Authorization"] = f"Basic {basic}"
         return parts
 
@@ -141,7 +141,7 @@ def _read_secret(ref: str | None, secrets: dict[str, str]) -> str:
 def _read_context(context: dict[str, Any], path: str) -> Any:
     if not path:
         return None
-    normalized = path[2:] if path.startswith("$.") else path
+    normalized = path.removeprefix("$.")
     current: Any = context
     for part in normalized.split("."):
         if not part:

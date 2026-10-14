@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 from fastaction.schemas import APIDefinition
 from fastaction.schemas.common import text_value

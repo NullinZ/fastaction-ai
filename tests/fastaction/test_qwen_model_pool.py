@@ -34,10 +34,10 @@ def test_free_quota_expiry_date_filter():
 
     assert expires_at is not None
     assert is_qwen_free_quota_expired(
-        now=datetime(2026, 6, 5, 0, 0, 0),
+        now=datetime(2026, 6, 5, 0, 0, 0),  # noqa: DTZ001 - exercise legacy naive timestamps.
         expires_at=expires_at,
     )
     assert not is_qwen_free_quota_expired(
-        now=datetime(2026, 6, 4, 12, 0, 0),
+        now=datetime(2026, 6, 4, 12, 0, 0),  # noqa: DTZ001 - exercise legacy naive timestamps.
         expires_at=expires_at,
     )
