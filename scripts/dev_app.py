@@ -13,8 +13,8 @@ from fastaction.safe_errors import SafeErrorMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    initialize_fastaction_persistence(runtime)
     try:
+        initialize_fastaction_persistence(runtime)
         yield
     finally:
         close_fastaction_persistence()

@@ -118,6 +118,8 @@ const paramsText = ref(formatJson({}))
 const chatMessages = ref(defaultChatMessages())
 const quickQuestions = defaultFastActionTestScenario.quickQuestions
 const hostExecutors = computed(() => buildFastActionHostExecutors(hostExecutorDefinitions.value))
+let componentDisposed = false
+let recordingGeneration = 0
 let mediaRecorder = null
 let mediaStream = null
 let recordingTimer = null
@@ -1468,9 +1470,17 @@ async function toggleVoiceRecording() {
 }
 
 async function startVoiceRecording() {
+  if (componentDisposed) return
+  const generation = ++recordingGeneration
+  let acquiredStream = null
   try {
     composerNotice.value = ''
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    acquiredStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    if (componentDisposed || generation !== recordingGeneration) {
+      stopStreamTracks(acquiredStream)
+      return
+    }
+    mediaStream = acquiredStream
     mediaRecorder = new window.MediaRecorder(mediaStream)
     audioChunks = []
     mediaRecorder.ondataavailable = (event) => {
@@ -1481,7 +1491,14 @@ async function startVoiceRecording() {
     isRecording.value = true
     recordingTimer = window.setTimeout(stopVoiceRecording, 60000)
   } catch (error) {
-    composerNotice.value = error.message || '无法启动录音，请检查麦克风权限。'
+    if (generation === recordingGeneration) {
+      cleanupVoiceRecording()
+      if (!componentDisposed) {
+        composerNotice.value = error.message || '无法启动录音，请检查麦克风权限。'
+      }
+    } else {
+      stopStreamTracks(acquiredStream)
+    }
   }
 }
 
@@ -1491,7 +1508,12 @@ function stopVoiceRecording() {
     recordingTimer = null
   }
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop()
+    try {
+      mediaRecorder.stop()
+    } catch (error) {
+      cleanupVoiceRecording()
+      throw error
+    }
   } else {
     stopVoiceTracks()
     isRecording.value = false
@@ -1523,20 +1545,31 @@ async function handleVoiceRecordingStopped() {
   }
 }
 
+function stopStreamTracks(stream) {
+  stream?.getTracks?.().forEach((track) => {
+    try { track.stop() } catch { /* Continue releasing the remaining tracks. */ }
+  })
+}
+
 function stopVoiceTracks() {
-  mediaStream?.getTracks?.().forEach(track => track.stop())
+  const stream = mediaStream
   mediaStream = null
   mediaRecorder = null
+  stopStreamTracks(stream)
 }
 
 function cleanupVoiceRecording() {
+  recordingGeneration++
   if (recordingTimer) {
     window.clearTimeout(recordingTimer)
     recordingTimer = null
   }
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+  if (mediaRecorder) {
     mediaRecorder.onstop = null
-    mediaRecorder.stop()
+    mediaRecorder.ondataavailable = null
+    if (mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.stop() } catch { /* Tracks still belong to this cleanup. */ }
+    }
   }
   audioChunks = []
   isRecording.value = false
@@ -2038,14 +2071,19 @@ watch(
 onMounted(async () => {
   voiceSupported.value = hasVoiceRecordingSupport()
   await loadSettings()
+  if (componentDisposed) return
   await loadPersistedTestMessages()
+  if (componentDisposed) return
   await refreshTestRecords({ silent: true })
+  if (componentDisposed) return
   await nextTick()
+  if (componentDisposed) return
   setupPhoneScaleObserver()
   scrollPreviewContainersToBottom()
 })
 
 onBeforeUnmount(() => {
+  componentDisposed = true
   window.removeEventListener('resize', updatePreviewLayout)
   stopPreviewResize()
   previewResizeObserver?.disconnect()

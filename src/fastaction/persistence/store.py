@@ -3,10 +3,11 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from typing import Any
+from threading import RLock
 from uuid import uuid4
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from fastaction.logging import get_logger
@@ -45,6 +46,7 @@ settings = get_settings()
 _initialized = False
 _session_factory: sessionmaker | None = None
 _owned_engine: Engine | None = None
+_persistence_lock = RLock()
 
 
 def persistence_enabled() -> bool:
@@ -61,12 +63,30 @@ def initialize_fastaction_persistence(
     engine: Engine | None = None,
     session_factory: sessionmaker | None = None,
 ) -> None:
+    with _persistence_lock:
+        try:
+            _initialize_fastaction_persistence(
+                runtime, engine=engine, session_factory=session_factory,
+            )
+        except BaseException:
+            close_fastaction_persistence()
+            raise
+
+
+def _initialize_fastaction_persistence(
+    runtime,
+    *,
+    engine: Engine | None = None,
+    session_factory: sessionmaker | None = None,
+) -> None:
     if not persistence_enabled() and engine is None and session_factory is None:
         logger.info("fastaction.persistence.disabled")
         return
 
     global _initialized, _session_factory, _owned_engine
     if session_factory is not None:
+        if session_factory is not _session_factory:
+            close_fastaction_persistence()
         _session_factory = session_factory
         with _session_factory() as session:
             _seed_defaults(session, runtime)
@@ -81,8 +101,16 @@ def initialize_fastaction_persistence(
         if not database_url:
             logger.info("fastaction.persistence.disabled", reason="missing_database_url")
             return
-        engine = create_engine(database_url, **_engine_options(database_url, get_settings()))
-        _owned_engine = engine
+        if _owned_engine is not None:
+            if _session_factory is None or _owned_engine.url != make_url(database_url):
+                close_fastaction_persistence()
+            else:
+                engine = _owned_engine
+        if engine is None:
+            engine = create_engine(database_url, **_engine_options(database_url, get_settings()))
+            _owned_engine = engine
+    elif _owned_engine is not None and engine is not _owned_engine:
+        close_fastaction_persistence()
 
     _ensure_schema_name(FASTACTION_SCHEMA)
     if engine.dialect.name != "sqlite":
@@ -125,11 +153,12 @@ def _engine_options(database_url: str, settings) -> dict[str, object]:
 
 def close_fastaction_persistence() -> None:
     global _initialized, _session_factory, _owned_engine
-    _session_factory = None
-    if _owned_engine is not None:
-        _owned_engine.dispose()
-        _owned_engine = None
-    _initialized = False
+    with _persistence_lock:
+        _initialized = False
+        _session_factory = None
+        if _owned_engine is not None:
+            _owned_engine.dispose()
+            _owned_engine = None
 
 
 def load_runtime_from_store(runtime) -> None:
